@@ -101,6 +101,7 @@
   }
   .entry input:focus { outline: none; border-color: var(--accent); }
   .primary { padding: 10px 18px; background: var(--accent); color: var(--bg); border-radius: 12px; font-weight: 700; }
+  .ghost[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
   .ghost { padding: 10px 14px; background: var(--panel); color: var(--ink); border-radius: 12px; }
 
   .found { background: var(--panel); border-radius: 10px; padding: 10px 12px; min-height: 64px; }
@@ -160,6 +161,7 @@
 
   <div class="entry">
     <input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="type a word" enterkeyhint="done">
+    <button class="ghost" id="btnRotate" title="Rotate board">↻</button>
     <button class="primary" id="btnStart">Shake</button>
   </div>
 
@@ -169,10 +171,15 @@
   </div>
 </div>
 
+<label style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none"><input type="checkbox" switch id="hapticSwitch"></label>
 <div class="sheet" id="sheetTheme"><div>
   <h2>Theme</h2>
   <div class="themes" id="themeList"></div>
-  <div class="actions"><button class="ghost" id="btnThemeShuffle">Surprise me each round</button><button class="ghost" data-close>Done</button></div>
+  <div class="actions"><button class="ghost" id="btnThemeShuffle">Surprise me each round</button></div>
+  <h2 style="margin-top:18px">Feedback</h2>
+  <div class="actions" style="margin-top:0"><button class="ghost" id="btnSound">Sound: off</button><button class="ghost" id="btnHaptic">Haptics: off</button></div>
+  <p class="hint">Haptics use an iOS 18 Safari quirk and may do nothing on other browsers.</p>
+  <div class="actions"><button class="ghost" data-close>Done</button></div>
 </div></div>
 
 <div class="sheet" id="sheetStats"><div>
@@ -171792,10 +171799,33 @@ function solve() {
   solution = out;
 }
 
+/* ---------- sound & haptics ---------- */
+let soundOn = false, hapticOn = false, actx = null;
+function unlockAudio() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } if (actx && actx.state === "suspended") actx.resume(); }
+function tone(freq, dur, type = "sine", gain = 0.12, when = 0) {
+  if (!soundOn || !actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + when;
+  o.type = type; o.frequency.value = freq; g.gain.setValueAtTime(gain, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + dur);
+}
+const sfx = {
+  tick(n) { tone(520 + 40 * Math.min(n, 12), 0.06, "triangle", 0.08); },
+  good(p) { tone(660, 0.1, "triangle"); tone(880, 0.16, "triangle", 0.12, 0.08); if (p >= 3) tone(1320, 0.2, "triangle", 0.1, 0.16); },
+  bad() { tone(180, 0.18, "square", 0.05); },
+  shake() { for (let i = 0; i < 6; i++) tone(300 + Math.random() * 300, 0.05, "triangle", 0.05, i * 0.04); },
+  over() { tone(523, 0.15, "sine"); tone(392, 0.15, "sine", 0.12, 0.15); tone(262, 0.4, "sine", 0.12, 0.3); },
+};
+function buzz(times = 1) {
+  if (!hapticOn) return;
+  const sw = $("hapticSwitch");
+  for (let i = 0; i < times; i++) setTimeout(() => sw.click(), i * 70);   /* iOS 18: toggling a switch control fires a haptic */
+}
+document.addEventListener("pointerdown", unlockAudio, { once: false });
+
 /* ---------- round control ---------- */
 function startRound() {
   if (shuffleTheme) applyTheme(THEMES[Math.floor(Math.random() * THEMES.length)]);
-  newBoard(); renderBoard(); solve();
+  newBoard(); renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
   $("foundTitle").textContent = "Found words"; $("btnStart").textContent = "End"; $("input").value = ""; $("input").disabled = false;
@@ -171810,7 +171840,7 @@ function drawTimer() {
 function endRound() {
   if (!running) return;
   running = false; clearInterval(tick); sel = []; drawSel(); $("grid").classList.add("idle");
-  $("btnStart").textContent = "Shake"; $("input").disabled = true; $("timer").classList.remove("low");
+  $("btnStart").textContent = "Shake"; $("input").disabled = true; $("timer").classList.remove("low"); sfx.over(); buzz(3);
   const possible = [...solution.values()].reduce((a, b) => a + b, 0);
   const missed = [...solution.keys()].filter(w => !found.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b));
   $("foundTitle").textContent = `You found ${found.size} of ${solution.size} words, ${score} of ${possible} points`;
@@ -171826,12 +171856,12 @@ function endRound() {
 function submitWord(raw) {
   const w = raw.toLowerCase().replace(/[^a-z]/g, "");
   if (!running || !w) return;
-  if (w.length < minLen()) return setTrace(w, "bad", `${minLen()}+ letters`);
-  if (found.has(w)) return setTrace(w, "bad", "already found");
-  if (!solution.has(w)) return setTrace(w, "bad", DICT.has(w) ? "not on this board" : "not a word");
+  if (w.length < minLen()) { sfx.bad(); return setTrace(w, "bad", `${minLen()}+ letters`); }
+  if (found.has(w)) { sfx.bad(); return setTrace(w, "bad", "already found"); }
+  if (!solution.has(w)) { sfx.bad(); buzz(1); return setTrace(w, "bad", DICT.has(w) ? "not on this board" : "not a word"); }
   const p = points(w); found.set(w, p); score += p; $("score").textContent = score;
   const c = document.createElement("span"); c.className = "chip"; c.innerHTML = `${w} <small>${p}</small>`; $("chips").prepend(c);
-  setTrace(w, "good", `+${p}`);
+  setTrace(w, "good", `+${p}`); sfx.good(p); buzz(p >= 3 ? 2 : 1);
 }
 function setTrace(word, cls, note) {
   const el = $("traceWord"); el.textContent = word.toUpperCase(); el.className = "word " + (cls || ""); $("traceNote").textContent = note;
@@ -171854,14 +171884,14 @@ function drawSel() {
 const board = $("board");
 board.addEventListener("pointerdown", e => {
   if (!running) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
-  dragging = true; sel = [i]; drawSel(); board.setPointerCapture(e.pointerId); e.preventDefault();
+  dragging = true; sel = [i]; drawSel(); sfx.tick(1); buzz(1); board.setPointerCapture(e.pointerId); e.preventDefault();
 });
 board.addEventListener("pointermove", e => {
   if (!dragging) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
   const last = sel[sel.length - 1];
   if (i === last) return;
   if (sel.length >= 2 && i === sel[sel.length - 2]) { sel.pop(); drawSel(); return; }   /* back up */
-  if (!sel.includes(i) && neighbors(last).includes(i)) { sel.push(i); drawSel(); }
+  if (!sel.includes(i) && neighbors(last).includes(i)) { sel.push(i); drawSel(); sfx.tick(sel.length); buzz(1); }
 });
 const finish = () => { if (!dragging) return; dragging = false; const w = sel.map(i => letters[i]).join(""); sel = []; drawSel(); if (w.length) submitWord(w); };
 board.addEventListener("pointerup", finish); board.addEventListener("pointercancel", finish);
@@ -171875,6 +171905,15 @@ function setSize(n) {
   N = n; $("btn4").setAttribute("aria-pressed", n === 4); $("btn5").setAttribute("aria-pressed", n === 5);
   newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n);
 }
+function rotateBoard() {
+  if (dragging) return;
+  const out = new Array(N * N);
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) out[c * N + (N - 1 - r)] = letters[r * N + c];   /* 90° clockwise */
+  letters = out; sel = []; renderBoard(); drawSel();
+  if (!running) $("grid").classList.add("idle");
+  sfx.tick(4); buzz(1);
+}
+$("btnRotate").onclick = rotateBoard;
 $("btn4").onclick = () => setSize(4); $("btn5").onclick = () => setSize(5);
 
 /* ---------- themes ---------- */
@@ -171924,6 +171963,12 @@ document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e =
 /* ---------- init ---------- */
 applyTheme(store.get("cloggle.theme", "letterpress"));
 shuffleTheme = store.get("cloggle.shuffle", false);
+soundOn = store.get("cloggle.sound", false); hapticOn = store.get("cloggle.haptic", false);
+const drawFx = () => { $("btnSound").textContent = "Sound: " + (soundOn ? "on" : "off"); $("btnSound").setAttribute("aria-pressed", soundOn);
+  $("btnHaptic").textContent = "Haptics: " + (hapticOn ? "on" : "off"); $("btnHaptic").setAttribute("aria-pressed", hapticOn); };
+$("btnSound").onclick = () => { soundOn = !soundOn; store.set("cloggle.sound", soundOn); drawFx(); unlockAudio(); sfx.good(1); };
+$("btnHaptic").onclick = () => { hapticOn = !hapticOn; store.set("cloggle.haptic", hapticOn); drawFx(); buzz(1); };
+drawFx();
 if (shuffleTheme) { const b = $("btnThemeShuffle"); b.setAttribute("aria-pressed", true); b.textContent = "Surprise me: on"; }
 setSize(store.get("cloggle.size", 4));
 $("input").disabled = true;
