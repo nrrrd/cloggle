@@ -65,6 +65,7 @@
   .tools { display: flex; gap: 6px; }
   .tools button { font-size: 14px; padding: 6px 10px; border-radius: 999px; background: var(--panel); color: var(--muted); }
   .tools button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .tools button[disabled] { opacity: .4; cursor: default; }
 
   .status { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
   .status .primary { font-size: 16px; padding: 8px 14px; min-width: 84px; text-align: center; }
@@ -143,6 +144,7 @@
     <div class="tools">
       <button id="btn4" aria-pressed="true" title="4 by 4">4×4</button>
       <button id="btn5" aria-pressed="false" title="5 by 5">5×5</button>
+      <button id="btnMin" title="Minimum word length">3+</button>
       <button id="btnTheme" title="Theme">Theme</button>
       <button id="btnStats" title="Stats">Stats</button>
     </div>
@@ -171747,7 +171749,9 @@ const store = {
 };
 
 /* ---------- scoring ---------- */
-const minLen = () => N === 5 ? 4 : 3;
+const MINLEN_DEFAULT = { 4: 3, 5: 4 };
+let minLens = Object.assign({}, MINLEN_DEFAULT, store.get("cloggle.minlen", null));
+const minLen = () => minLens[N] || MINLEN_DEFAULT[N];
 function points(w) {
   const L = w.length;
   if (L < minLen()) return 0;
@@ -171841,7 +171845,7 @@ function startRound() {
   newBoard(); renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
-  $("foundTitle").textContent = "Found words"; setStartLabel("End", false); $("input").value = ""; $("input").disabled = false;
+  $("foundTitle").textContent = "Found words"; setStartLabel("End", false); drawMinLen(); $("input").value = ""; $("input").disabled = false;
   setTrace("", "", `${solution.size} words hidden · min ${minLen()} letters`);
   clearInterval(tick); drawTimer();
   tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000);
@@ -171855,7 +171859,7 @@ function endRound() {
   cancelEndConfirm(); startLock = Date.now() + 1500;   /* don't let the confirming tap shake a fresh board */
   $("btnStart").disabled = true; setTimeout(() => { $("btnStart").disabled = false; }, 1500);
   running = false; clearInterval(tick); sel = []; drawSel(); $("grid").classList.add("idle");
-  setStartLabel("Shake", false); $("input").disabled = true; $("timer").classList.remove("low"); sfx.over(); buzz(3);
+  setStartLabel("Shake", false); $("input").disabled = true; drawMinLen(); $("timer").classList.remove("low"); sfx.over(); buzz(3);
   const possible = [...solution.values()].reduce((a, b) => a + b, 0);
   const missed = [...solution.keys()].filter(w => !found.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b));
   $("foundTitle").textContent = `You found ${found.size} of ${solution.size} words, ${score} of ${possible} points`;
@@ -171864,7 +171868,7 @@ function endRound() {
   const longest = [...found.keys()].sort((a, b) => b.length - a.length)[0] || "";
   if (score > 0)   /* accidental starts with nothing scored don't count toward stats */
     logGame({ date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
-              score, possible, found: found.size, possibleWords: solution.size, longest, words: [...found.keys()] });
+              score, possible, found: found.size, possibleWords: solution.size, minLen: minLen(), longest, words: [...found.keys()] });
   setTrace("", "", "Round over. Shake for a new board.");
 }
 
@@ -171927,7 +171931,7 @@ $("btnStart").addEventListener("click", () => {
 function setSize(n) {
   if (running) endRound();
   N = n; $("btn4").setAttribute("aria-pressed", n === 4); $("btn5").setAttribute("aria-pressed", n === 5);
-  newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n);
+  newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n); drawMinLen();
 }
 function rotateBoard() {
   if (dragging) return;
@@ -171939,6 +171943,13 @@ function rotateBoard() {
 }
 $("btnRotate").onclick = rotateBoard;
 $("btn4").onclick = () => setSize(4); $("btn5").onclick = () => setSize(5);
+
+function drawMinLen() { $("btnMin").textContent = minLen() + "+"; $("btnMin").disabled = running; }
+$("btnMin").onclick = () => {
+  if (running) return;   /* changing it mid-round would invalidate the solved board */
+  minLens[N] = minLen() === 3 ? 4 : 3; store.set("cloggle.minlen", minLens); drawMinLen();
+  setTrace("", "", `words of ${minLen()}+ letters count`);
+};
 
 /* ---------- themes ---------- */
 function applyTheme(t) {
@@ -171952,26 +171963,26 @@ $("btnThemeShuffle").onclick = e => { shuffleTheme = !shuffleTheme; store.set("c
 
 /* ---------- stats ---------- */
 function logGame(g) { const games = store.get("cloggle.games", []); games.push(g); if (!store.set("cloggle.games", games)) console.warn("stats not saved (storage unavailable)"); }
+const gameMinLen = g => g.minLen || MINLEN_DEFAULT[g.size] || 3;   /* rounds logged before the toggle used the per-size default */
 function renderStats() {
   const games = store.get("cloggle.games", []);
   const body = $("statsBody"), log = $("statsLog");
   if (!games.length) { body.innerHTML = `<p class="hint">No rounds logged yet. Stats save on this device.</p>`; log.innerHTML = ""; return; }
-  const bySize = n => games.filter(g => g.size === n);
   const rows = [];
-  for (const n of [4, 5]) {
-    const gs = bySize(n); if (!gs.length) continue;
+  for (const n of [4, 5]) for (const m of [3, 4]) {
+    const gs = games.filter(g => g.size === n && gameMinLen(g) === m); if (!gs.length) continue;
     const avg = k => (gs.reduce((a, g) => a + g[k], 0) / gs.length);
     const best = gs.reduce((a, g) => g.score > a.score ? g : a);
     const cover = gs.reduce((a, g) => a + g.found, 0) / gs.reduce((a, g) => a + g.possibleWords, 0) * 100;
     const longest = gs.map(g => g.longest).sort((a, b) => b.length - a.length)[0];
-    rows.push(`<h3 style="margin:14px 0 4px">${n}×${n}</h3>`,
+    rows.push(`<h3 style="margin:14px 0 4px">${n}×${n} · ${m}+ letters</h3>`,
       row("Rounds", gs.length), row("Average score", avg("score").toFixed(1)), row("Best score", best.score),
       row("Words per round", avg("found").toFixed(1)), row("Share of hidden words found", cover.toFixed(1) + "%"),
       row("Longest word", longest || "—"));
   }
   body.innerHTML = rows.join("");
   log.innerHTML = games.slice(-15).reverse().map(g =>
-    `<div><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size}</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
+    `<div><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size} ${gameMinLen(g)}+</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
 }
 function row(k, v) { return `<div class="row"><span>${k}</span><span>${v}</span></div>`; }
 $("btnStats").onclick = () => { renderStats(); $("sheetStats").classList.add("open"); };
