@@ -7,6 +7,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Cloggle">
 <meta name="theme-color" content="#1c1a17">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" type="image/png">
 <title>Cloggle</title>
 <style>
   /* ---------- themes ---------- */
@@ -66,6 +70,8 @@
   .tools button { font-size: 14px; padding: 6px 10px; border-radius: 999px; background: var(--panel); color: var(--muted); }
   .tools button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .tools button[disabled] { opacity: .4; cursor: default; }
+  .net { align-self: center; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+         color: var(--muted); padding: 4px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--tile-edge); }
 
   .status { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
   .status .primary { font-size: 16px; padding: 8px 14px; min-width: 84px; text-align: center; }
@@ -147,6 +153,7 @@
       <button id="btnMin" title="Minimum word length">3+</button>
       <button id="btnTheme" title="Theme">Theme</button>
       <button id="btnStats" title="Stats">Stats</button>
+      <span class="net" id="netBadge" hidden title="No network — solo play is unaffected">offline</span>
     </div>
   </header>
 
@@ -185,6 +192,8 @@
   <h2 style="margin-top:18px">Feedback</h2>
   <div class="actions" style="margin-top:0"><button class="ghost" id="btnSound">Sound: off</button><button class="ghost" id="btnHaptic">Haptics: off</button></div>
   <p class="hint">Haptics use an iOS 18 Safari quirk and may do nothing on other browsers.</p>
+  <h2 style="margin-top:18px">Network</h2>
+  <p class="hint" id="netHint">Checking…</p>
   <div class="actions"><button class="ghost" data-close>Done</button></div>
 </div></div>
 
@@ -172007,6 +172016,30 @@ drawFx();
 if (shuffleTheme) { const b = $("btnThemeShuffle"); b.setAttribute("aria-pressed", true); b.textContent = "Surprise me: on"; }
 setSize(store.get("cloggle.size", 4));
 $("input").disabled = true;
+
+/* ---------- offline support ----------
+   Solo play is entirely local, so the only thing network state gates is
+   anything online (multiplayer): it reports as unavailable instead of erroring. */
+let online = navigator.onLine !== false;
+function setOnline(v) {
+  online = !!v;
+  document.body.classList.toggle("offline", !online);
+  $("netBadge").hidden = online;
+  $("netHint").textContent = online
+    ? "Online. Solo play never needs the network."
+    : "Offline — solo play works as normal. Multiplayer is unavailable until you reconnect.";
+}
+/* Call this if an online service (Firebase, a game server) fails to reach its
+   backend: it flips the UI to the offline state rather than surfacing an error. */
+function reportNetworkFailure() { setOnline(false); }
+window.cloggleNet = { isOnline: () => online, reportNetworkFailure };
+addEventListener("online", () => setOnline(true));
+addEventListener("offline", () => setOnline(false));
+setOnline(navigator.onLine !== false);
+
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("sw registration failed", e)));
+}
 </script>
 </body>
 </html>
