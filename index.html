@@ -63,13 +63,13 @@
 
   .app { max-width: 480px; margin: 0 auto; padding: 12px 14px 24px; display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
 
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-  .wordmark { font-size: 28px; font-weight: 800; letter-spacing: .06em; margin: 0; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .wordmark { font-size: clamp(20px, 6vw, 28px); font-weight: 800; letter-spacing: .04em; margin: 0; }
   .wordmark span { color: var(--accent); }
-  .tools { display: flex; gap: 6px; }
-  .tools button { font-size: 14px; padding: 6px 10px; border-radius: 999px; background: var(--panel); color: var(--muted); }
+  .tools { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  .tools button { font-size: 13px; padding: 6px 8px; border-radius: 999px; background: var(--panel); color: var(--muted); white-space: nowrap; }
   .tools button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
-  .tools button[disabled] { opacity: .4; cursor: default; }
+  .tools button[disabled] { opacity: .55; cursor: default; }
   .net { align-self: center; font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
          color: var(--muted); padding: 4px 8px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--tile-edge); }
 
