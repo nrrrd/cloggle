@@ -66,7 +66,10 @@
   .tools button { font-size: 14px; padding: 6px 10px; border-radius: 999px; background: var(--panel); color: var(--muted); }
   .tools button[aria-pressed="true"] { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
 
-  .status { display: flex; justify-content: space-between; align-items: baseline; padding: 0 2px; }
+  .status { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
+  .status .primary { font-size: 16px; padding: 8px 14px; min-width: 84px; text-align: center; }
+  .status .primary[disabled] { opacity: .45; }
+  .status .primary.confirm { background: var(--bad); }
   .timer { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .timer.low { color: var(--bad); }
   .score { font-size: 20px; color: var(--muted); }
@@ -103,6 +106,7 @@
   .primary { padding: 10px 18px; background: var(--accent); color: var(--bg); border-radius: 12px; font-weight: 700; }
   .ghost[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
   .ghost { padding: 10px 14px; background: var(--panel); color: var(--ink); border-radius: 12px; }
+  #btnRotate { padding: 10px 26px; font-size: 20px; line-height: 1; }
 
   .found { background: var(--panel); border-radius: 10px; padding: 10px 12px; min-height: 64px; }
   .found h2 { margin: 0 0 6px; font-size: 14px; font-weight: 400; color: var(--muted); }
@@ -147,6 +151,7 @@
   <div class="status">
     <div class="timer" id="timer">3:00</div>
     <div class="score">score <b id="score">0</b></div>
+    <button class="primary" id="btnStart">Shake</button>
   </div>
 
   <div class="board" id="board">
@@ -160,9 +165,8 @@
   </div>
 
   <div class="entry">
-    <input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="type a word" enterkeyhint="done">
     <button class="ghost" id="btnRotate" title="Rotate board">↻</button>
-    <button class="primary" id="btnStart">Shake</button>
+    <input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="type a word" enterkeyhint="done">
   </div>
 
   <div class="found">
@@ -171823,12 +171827,21 @@ function buzz(times = 1) {
 document.addEventListener("pointerdown", unlockAudio, { once: false });
 
 /* ---------- round control ---------- */
+let endConfirm = null, startLock = 0;
+function setStartLabel(t, confirming) {
+  const b = $("btnStart"); b.textContent = t; b.classList.toggle("confirm", !!confirming);
+}
+function cancelEndConfirm() {
+  if (!endConfirm) return;
+  clearTimeout(endConfirm); endConfirm = null;
+  if (running) setStartLabel("End", false);
+}
 function startRound() {
   if (shuffleTheme) applyTheme(THEMES[Math.floor(Math.random() * THEMES.length)]);
   newBoard(); renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
-  $("foundTitle").textContent = "Found words"; $("btnStart").textContent = "End"; $("input").value = ""; $("input").disabled = false;
+  $("foundTitle").textContent = "Found words"; setStartLabel("End", false); $("input").value = ""; $("input").disabled = false;
   setTrace("", "", `${solution.size} words hidden · min ${minLen()} letters`);
   clearInterval(tick); drawTimer();
   tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000);
@@ -171839,16 +171852,19 @@ function drawTimer() {
 }
 function endRound() {
   if (!running) return;
+  cancelEndConfirm(); startLock = Date.now() + 1500;   /* don't let the confirming tap shake a fresh board */
+  $("btnStart").disabled = true; setTimeout(() => { $("btnStart").disabled = false; }, 1500);
   running = false; clearInterval(tick); sel = []; drawSel(); $("grid").classList.add("idle");
-  $("btnStart").textContent = "Shake"; $("input").disabled = true; $("timer").classList.remove("low"); sfx.over(); buzz(3);
+  setStartLabel("Shake", false); $("input").disabled = true; $("timer").classList.remove("low"); sfx.over(); buzz(3);
   const possible = [...solution.values()].reduce((a, b) => a + b, 0);
   const missed = [...solution.keys()].filter(w => !found.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b));
   $("foundTitle").textContent = `You found ${found.size} of ${solution.size} words, ${score} of ${possible} points`;
   const chips = $("chips");
   for (const w of missed) { const c = document.createElement("span"); c.className = "chip missed"; c.textContent = w; chips.appendChild(c); }
   const longest = [...found.keys()].sort((a, b) => b.length - a.length)[0] || "";
-  logGame({ date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
-            score, possible, found: found.size, possibleWords: solution.size, longest, words: [...found.keys()] });
+  if (score > 0)   /* accidental starts with nothing scored don't count toward stats */
+    logGame({ date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
+              score, possible, found: found.size, possibleWords: solution.size, longest, words: [...found.keys()] });
   setTrace("", "", "Round over. Shake for a new board.");
 }
 
@@ -171897,7 +171913,15 @@ const finish = () => { if (!dragging) return; dragging = false; const w = sel.ma
 board.addEventListener("pointerup", finish); board.addEventListener("pointercancel", finish);
 
 $("input").addEventListener("keydown", e => { if (e.key === "Enter") { submitWord(e.target.value); e.target.value = ""; } });
-$("btnStart").addEventListener("click", () => running ? endRound() : startRound());
+$("btnStart").addEventListener("click", () => {
+  if (!running) { if (Date.now() < startLock) return; startRound(); return; }
+  if (!endConfirm) {   /* first tap only arms the button, so a stray tap can't kill a round */
+    setStartLabel("End?", true); sfx.bad();
+    endConfirm = setTimeout(() => { endConfirm = null; if (running) setStartLabel("End", false); }, 3000);
+    return;
+  }
+  endRound();
+});
 
 /* ---------- size ---------- */
 function setSize(n) {
