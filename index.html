@@ -141,6 +141,20 @@
   .themes button { padding: 10px 14px; border-radius: 999px; background: var(--panel); }
   .themes button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--accent); }
   .hint { color: var(--muted); font-size: 14px; }
+  .sheet h3 { margin: 14px 0 6px; font-size: 15px; }
+  .log div.vs { cursor: pointer; }
+  .invite { background: var(--panel); border-radius: 10px; padding: 10px 12px; box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .invite p { margin: 0; }
+  .invite .ghost { background: var(--bg); }
+  .sheet .row.hint span:last-child { font-weight: 400; }
+  .invite .actions, .after { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .after { margin-top: 0; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); margin-bottom: 10px; }
+  .field input, .plain {
+    font: inherit; font-size: 17px; padding: 10px 12px; border-radius: 12px; min-width: 0;
+    border: 1.5px solid var(--tile-edge); background: var(--panel); color: var(--ink);
+  }
+  .plain { flex: 1; }
 </style>
 </head>
 <body>
@@ -152,6 +166,7 @@
       <button id="btn5" aria-pressed="false" title="5 by 5">5×5</button>
       <button id="btnMin" title="Minimum word length">3+</button>
       <button id="btnTheme" title="Theme">Theme</button>
+      <button id="btnFriends" title="Play with friends">Friends</button>
       <button id="btnStats" title="Stats">Stats</button>
       <span class="net" id="netBadge" hidden title="No network — solo play is unaffected">offline</span>
     </div>
@@ -178,9 +193,19 @@
     <input id="input" type="text" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" placeholder="type a word" enterkeyhint="done">
   </div>
 
+  <div class="invite" id="invite" hidden>
+    <p id="inviteText"></p>
+    <div class="actions"><button class="ghost" id="btnResend">Resend link</button><button class="ghost" id="btnDecline">Play my own board</button></div>
+  </div>
+
   <div class="found">
     <h2 id="foundTitle">Found words</h2>
     <div class="chips" id="chips"><span class="empty">Shake the board to start a 3-minute round.</span></div>
+  </div>
+
+  <div class="after" id="afterRound" hidden>
+    <button class="primary" id="btnChallenge">Challenge a friend</button>
+    <button class="ghost" id="btnVs" hidden>Head to head</button>
   </div>
 </div>
 
@@ -194,6 +219,31 @@
   <p class="hint">Haptics use an iOS 18 Safari quirk and may do nothing on other browsers.</p>
   <h2 style="margin-top:18px">Network</h2>
   <p class="hint" id="netHint">Checking…</p>
+  <div class="actions"><button class="ghost" data-close>Done</button></div>
+</div></div>
+
+<div class="sheet" id="sheetFriends"><div>
+  <h2>Play with friends</h2>
+  <p class="hint">No accounts: a game travels as a link. Whoever opens it gets the same board, and when they finish they can send their result back to you.</p>
+  <label class="field">Your name<input id="nameInput" maxlength="20" autocomplete="nickname" placeholder="so friends know who sent it"></label>
+  <div class="actions" style="margin-top:0">
+    <button class="ghost" id="btnNewShared">Send a new board</button>
+    <button class="ghost" id="btnShareLast">Challenge with my last board</button>
+  </div>
+  <h2 style="margin-top:18px">Open a link</h2>
+  <div class="actions" style="margin-top:0">
+    <input class="plain" id="linkInput" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="paste a Cloggle link">
+    <button class="ghost" id="btnOpenLink">Open</button>
+  </div>
+  <p class="hint">On iPhone, tapping a link opens Safari rather than the home-screen app, and the two keep separate stats. Paste the link here to play it in the app.</p>
+  <h2 style="margin-top:18px">Head to head</h2>
+  <div id="friendsBody"></div>
+  <div class="actions"><button class="ghost" data-close>Done</button></div>
+</div></div>
+
+<div class="sheet" id="sheetVs"><div>
+  <h2>Head to head</h2>
+  <div id="vsBody"></div>
   <div class="actions"><button class="ghost" data-close>Done</button></div>
 </div></div>
 
@@ -171760,10 +171810,11 @@ const store = {
 /* ---------- scoring ---------- */
 const MINLEN_DEFAULT = { 4: 3, 5: 4 };
 let minLens = Object.assign({}, MINLEN_DEFAULT, store.get("cloggle.minlen", null));
-const minLen = () => minLens[N] || MINLEN_DEFAULT[N];
-function points(w) {
+let roundMinLen = null;   /* a shared board brings its own rule; it overrides the local toggle for that round */
+const minLen = () => roundMinLen || minLens[N] || MINLEN_DEFAULT[N];
+function points(w, m = minLen()) {
   const L = w.length;
-  if (L < minLen()) return 0;
+  if (L < m) return 0;
   if (L <= 4) return 1; if (L === 5) return 2; if (L === 6) return 3; if (L === 7) return 5; return 11;
 }
 
@@ -171773,11 +171824,11 @@ function newBoard() {
   const dice = shuffle((N === 5 ? DICE5 : DICE4).slice());
   letters = dice.map(d => { const c = d[Math.floor(Math.random() * 6)]; return c === "Q" ? "QU" : c; });
 }
-function neighbors(i) {
-  const r = Math.floor(i / N), c = i % N, out = [];
+function neighbors(i, n = N) {
+  const r = Math.floor(i / n), c = i % n, out = [];
   for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
     if (!dr && !dc) continue; const rr = r + dr, cc = c + dc;
-    if (rr >= 0 && rr < N && cc >= 0 && cc < N) out.push(rr * N + cc);
+    if (rr >= 0 && rr < n && cc >= 0 && cc < n) out.push(rr * n + cc);
   }
   return out;
 }
@@ -171791,12 +171842,13 @@ function renderBoard() {
 }
 
 /* ---------- solver: every word the board contains ---------- */
-function solve() {
+function solve() { solution = solveBoard(letters, N, minLen()); }
+function solveBoard(letters, N, m) {
   const maxLen = N * N + letters.filter(l => l === "QU").length;
   const onBoard = new Set(letters.map(l => l.toLowerCase()));
   const cand = [];
   for (const w of DICT) {
-    if (w.length < minLen() || w.length > maxLen) continue;
+    if (w.length < m || w.length > maxLen) continue;
     let ok = true;
     for (const ch of w) { if (!onBoard.has(ch) && !(ch === "u" && onBoard.has("qu")) && !(ch === "q" && onBoard.has("qu"))) { ok = false; break; } }
     if (ok) cand.push(w);
@@ -171807,13 +171859,13 @@ function solve() {
   const dfs = (i, s) => {
     s += letters[i].toLowerCase();
     if (!prefixes.has(s)) return;
-    if (words.has(s)) out.set(s, points(s));
+    if (words.has(s)) out.set(s, points(s, m));
     used[i] = true;
-    for (const j of neighbors(i)) if (!used[j]) dfs(j, s);
+    for (const j of neighbors(i, N)) if (!used[j]) dfs(j, s);
     used[i] = false;
   };
   for (let i = 0; i < N * N; i++) dfs(i, "");
-  solution = out;
+  return out;
 }
 
 /* ---------- sound & haptics ---------- */
@@ -171851,7 +171903,12 @@ function cancelEndConfirm() {
 }
 function startRound() {
   if (shuffleTheme) applyTheme(THEMES[Math.floor(Math.random() * THEMES.length)]);
-  newBoard(); renderBoard(); solve(); sfx.shake(); buzz(2);
+  const pc = pending; setPending(null);
+  if (pc) { N = pc.size; drawSizeButtons(); letters = decodeBoard(pc.board); roundMinLen = pc.m; }
+  else { newBoard(); roundMinLen = null; }
+  round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc };
+  $("afterRound").hidden = true;
+  renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
   $("foundTitle").textContent = "Found words"; setStartLabel("End", false); drawMinLen(); $("input").value = ""; $("input").disabled = false;
@@ -171875,10 +171932,19 @@ function endRound() {
   const chips = $("chips");
   for (const w of missed) { const c = document.createElement("span"); c.className = "chip missed"; c.textContent = w; chips.appendChild(c); }
   const longest = [...found.keys()].sort((a, b) => b.length - a.length)[0] || "";
-  if (score > 0)   /* accidental starts with nothing scored don't count toward stats */
-    logGame({ date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
-              score, possible, found: found.size, possibleWords: solution.size, minLen: minLen(), longest, words: [...found.keys()] });
-  setTrace("", "", "Round over. Shake for a new board.");
+  const entry = { date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
+                  score, possible, found: found.size, possibleWords: solution.size, minLen: minLen(), longest, words: [...found.keys()],
+                  id: round.id, board: round.board, opponents: round.opps.map(o => scoreOpp(o, solution, round.m)) };
+  /* accidental starts with nothing scored don't count toward stats, unless it was a friend's board */
+  const keep = score > 0 || round.shared;
+  if (keep) logGame(entry);
+  lastRound = { entry, logged: keep };
+  roundMinLen = null; drawMinLen();
+  $("btnChallenge").textContent = entry.opponents.length ? "Send my result" : "Challenge a friend";
+  $("btnVs").hidden = !entry.opponents.length; $("afterRound").hidden = false;
+  setTrace("", "", pending ? "Round over. Shake to play the board you were sent." : "Round over. Shake for a new board.");
+  drawInvite();
+  if (entry.opponents.length) showVs(entry);
 }
 
 /* ---------- word entry ---------- */
@@ -171939,9 +172005,11 @@ $("btnStart").addEventListener("click", () => {
 /* ---------- size ---------- */
 function setSize(n) {
   if (running) endRound();
-  N = n; $("btn4").setAttribute("aria-pressed", n === 4); $("btn5").setAttribute("aria-pressed", n === 5);
+  if (pending) setPending(null);   /* picking a size means you're not playing the board you were sent */
+  N = n; drawSizeButtons();
   newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n); drawMinLen();
 }
+function drawSizeButtons() { $("btn4").setAttribute("aria-pressed", N === 4); $("btn5").setAttribute("aria-pressed", N === 5); }
 function rotateBoard() {
   if (dragging) return;
   const out = new Array(N * N);
@@ -171953,9 +172021,12 @@ function rotateBoard() {
 $("btnRotate").onclick = rotateBoard;
 $("btn4").onclick = () => setSize(4); $("btn5").onclick = () => setSize(5);
 
-function drawMinLen() { $("btnMin").textContent = minLen() + "+"; $("btnMin").disabled = running; }
+function drawMinLen() {
+  const locked = !running && pending;   /* a board you were sent comes with its own rule */
+  $("btnMin").textContent = (locked ? pending.m : minLen()) + "+"; $("btnMin").disabled = running || !!locked;
+}
 $("btnMin").onclick = () => {
-  if (running) return;   /* changing it mid-round would invalidate the solved board */
+  if (running || pending) return;   /* changing it mid-round would invalidate the solved board */
   minLens[N] = minLen() === 3 ? 4 : 3; store.set("cloggle.minlen", minLens); drawMinLen();
   setTrace("", "", `words of ${minLen()}+ letters count`);
 };
@@ -171991,8 +172062,10 @@ function renderStats() {
   }
   body.innerHTML = rows.join("");
   log.innerHTML = games.slice(-15).reverse().map(g =>
-    `<div><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size} ${gameMinLen(g)}+</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
+    `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size} ${gameMinLen(g)}+${vsLabel(g)}</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
 }
+const vsAttr = g => (g.opponents || []).length ? ` class="vs" data-id="${esc(g.id)}"` : "";
+const vsLabel = g => (g.opponents || []).map(o => ` · ${esc(o.name)} ${o.score}`).join("");
 function row(k, v) { return `<div class="row"><span>${k}</span><span>${v}</span></div>`; }
 $("btnStats").onclick = () => { renderStats(); $("sheetStats").classList.add("open"); };
 $("btnExport").onclick = async e => {
@@ -172001,6 +172074,192 @@ $("btnExport").onclick = async e => {
   catch { const a = document.createElement("a"); a.href = "data:application/json," + encodeURIComponent(json); a.download = "cloggle-stats.json"; a.click(); }
 };
 $("btnClear").onclick = e => { if (e.target.textContent === "Clear stats") { e.target.textContent = "Tap again to confirm"; return; } store.set("cloggle.games", []); renderStats(); e.target.textContent = "Clear stats"; };
+
+/* ---------- friends: shared boards, challenges, head-to-head ----------
+   There's no server, so a game travels as a link. The hash carries the board,
+   the min-length rule, who sent it and (once they've played) their words.
+   The receiver re-solves the board and rescores those words itself, so a link
+   can't claim points the board doesn't hold. "Challenge", "new board for a
+   friend" and "here's my result" are all the same link: whoever opens it
+   either plays that board or, if they already have, gets the comparison. */
+const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+function randId() {
+  const a = new Uint8Array(6); try { crypto.getRandomValues(a); } catch { a.forEach((_, i) => a[i] = Math.random() * 256); }
+  return [...a].map(b => (b % 36).toString(36)).join("");
+}
+const myPid = store.get("cloggle.pid", null) || (() => { const p = randId(); store.set("cloggle.pid", p); return p; })();
+const encodeBoard = ls => ls.map(l => l[0]).join("");                  /* QU travels as Q */
+const decodeBoard = s => [...s].map(c => c === "Q" ? "QU" : c);
+let round = null, lastRound = null, pending = store.get("cloggle.pending", null);
+
+function parseLink(str) {
+  const i = str.indexOf("#"), q = new URLSearchParams(i >= 0 ? str.slice(i + 1) : str.trim());
+  const id = q.get("g") || "", b = (q.get("b") || "").toUpperCase(), m = +q.get("m");
+  if (!/^[a-z0-9]{4,16}$/i.test(id) || !/^([A-Z]{16}|[A-Z]{25})$/.test(b) || (m !== 3 && m !== 4)) return null;
+  const pid = q.get("p"), name = (q.get("n") || "").trim().slice(0, 20) || "A friend";
+  const words = q.has("w") ? [...new Set(q.get("w").split(".").filter(w => /^[a-z]{3,25}$/.test(w)))] : null;
+  return { id, board: b, size: b.length === 25 ? 5 : 4, m, from: pid ? { pid, name, words } : null };
+}
+function scoreOpp(o, sol, m) {
+  const words = o.words.filter(w => sol.has(w));
+  return { pid: o.pid, name: o.name, words, score: words.reduce((a, w) => a + points(w, m), 0) };
+}
+function upsertOpp(list, o) { const i = list.findIndex(x => x.pid === o.pid); if (i >= 0) list[i] = o; else list.push(o); }
+
+function setPending(p) { pending = p; store.set("cloggle.pending", p); drawInvite(); drawMinLen(); }
+function showPendingBoard() {   /* face-down tiles: nobody gets to study a shared board before the clock starts */
+  N = pending.size; drawSizeButtons(); letters = new Array(N * N).fill("?"); renderBoard(); $("grid").classList.add("idle");
+}
+function drawInvite() {
+  const el = $("invite");
+  if (!pending || running) { el.hidden = true; return; }
+  const p = pending, what = `${p.size}×${p.size} board (${p.m}+ letters)`;
+  const scores = p.opps.map(o => `${esc(o.name)} scored <b>${o.score}</b>`).join(", ");
+  $("inviteText").innerHTML = p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
+    : p.fromName ? `${esc(p.fromName)} sent you a ${what}. Shake when you're both ready.`
+    : `Your shared ${what} is ready. Shake when you're both ready.`;
+  $("btnResend").hidden = !p.mine;
+  el.hidden = false;
+}
+
+/* Open a link (from the address bar or pasted in). Returns false if it isn't one. */
+function receiveLink(str) {
+  const c = parseLink(str); if (!c) return false;
+  const from = c.from && c.from.pid !== myPid ? c.from : null;   /* your own link carries nothing new */
+  const games = store.get("cloggle.games", []), g = games.find(x => x.id === c.id);
+  if (g) {   /* already played it: this is a result coming back */
+    if (!(from && from.words) && !(g.opponents || []).length) { setTrace("", "", "You've already played that board."); return true; }
+    if (from && from.words) {
+      g.opponents = g.opponents || [];
+      upsertOpp(g.opponents, scoreOpp(from, solveBoard(decodeBoard(g.board), g.size, gameMinLen(g)), gameMinLen(g)));
+      store.set("cloggle.games", games);
+      if (lastRound && lastRound.entry.id === g.id) lastRound.entry = g;
+    }
+    showVs(g); return true;
+  }
+  if (running && round.id === c.id) {   /* a result for the board you're on right now: scored when the round ends */
+    if (from && from.words) upsertOpp(round.opps, from);
+    setTrace("", "", `${from ? from.name + "'s" : "That"} result will show when this round ends.`); return true;
+  }
+  const p = pending && pending.id === c.id ? pending
+          : { id: c.id, board: c.board, size: c.size, m: c.m, opps: [], fromName: from && from.name, mine: !from && c.from && c.from.pid === myPid };
+  if (from && from.words) upsertOpp(p.opps, scoreOpp(from, solveBoard(decodeBoard(c.board), c.size, c.m), c.m));
+  setPending(p);
+  if (running) setTrace("", "", "Board received — it loads when this round ends.");
+  else { showPendingBoard(); $("chips").innerHTML = ""; $("foundTitle").textContent = "Found words"; $("afterRound").hidden = true; setTrace("", "", "Board received."); }
+  return true;
+}
+function takeHash() {
+  if (!/[#&]g=/.test(location.hash)) return;
+  const h = location.hash; history.replaceState(null, "", location.pathname + location.search);   /* a reload shouldn't replay it */
+  receiveLink(h);
+}
+
+function myName() {
+  let n = store.get("cloggle.name", "");
+  if (!n) {
+    n = prompt("Your name, so friends know who it's from:", "");
+    if (n === null) return null;
+    n = n.trim().slice(0, 20) || "A friend"; store.set("cloggle.name", n); $("nameInput").value = n;
+  }
+  return n;
+}
+async function shareLink(p, words, text) {
+  const name = myName(); if (name === null) return;
+  const q = new URLSearchParams({ g: p.id, b: p.board, m: p.m, p: myPid, n: name });
+  if (words) q.set("w", words.join("."));
+  const url = location.href.split("#")[0] + "#" + q;
+  if (navigator.share) {
+    try { await navigator.share({ title: "Cloggle", text, url }); return; }
+    catch (e) { if (e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); setTrace("", "", "Link copied — paste it to a friend."); }
+  catch { prompt("Copy this link and send it:", url); }
+}
+function shareRound(r) {   /* challenge with a finished round, or send your result back */
+  if (!r.logged) { logGame(r.entry); r.logged = true; }   /* a reply needs something to land on */
+  const g = r.entry, names = (g.opponents || []).map(o => o.name).join(" & ");
+  const text = names ? `Cloggle: I got ${g.score} on your board, ${names}.`
+                     : `Cloggle challenge: I scored ${g.score} on this ${g.size}×${g.size}. Your turn.`;
+  shareLink({ id: g.id, board: g.board, m: gameMinLen(g) }, g.words, text);
+}
+function lastPlayed() {
+  if (lastRound) return lastRound;
+  const g = store.get("cloggle.games", []).filter(g => g.board).pop();
+  return g ? { entry: g, logged: true } : null;
+}
+function newSharedBoard() {
+  if (running) return;
+  newBoard();
+  const p = { id: randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: [], mine: true };
+  setPending(p); showPendingBoard(); $("chips").innerHTML = ""; $("afterRound").hidden = true;
+  shareLink(p, null, `Cloggle: here's a ${N}×${N} board for us both. Shake when we're both ready.`);
+}
+
+function showVs(g) {
+  const m = gameMinLen(g), opps = g.opponents || [];
+  const players = [{ name: "You", words: new Set(g.words), score: g.score }, ...opps.map(o => ({ name: o.name, words: new Set(o.words), score: o.score }))];
+  const who = new Map();   /* word -> indices of players who found it */
+  players.forEach((p, i) => p.words.forEach(w => { if (!who.has(w)) who.set(w, []); who.get(w).push(i); }));
+  /* classic Boggle rule: a word anyone else also found scores for nobody */
+  players.forEach(p => p.unique = [...p.words].filter(w => who.get(w).length === 1).reduce((a, w) => a + points(w, m), 0));
+  const ranked = players.slice().sort((a, b) => b.score - a.score);
+  const byLen = (a, b) => b.length - a.length || a.localeCompare(b);
+  const names = ix => ix.filter(i => i).map(i => esc(players[i].name)).join(", ");
+  const chips = (ws, tag) => ws.length ? ws.sort(byLen).map(w => `<span class="chip">${w}${tag ? ` <small>${tag(w)}</small>` : ""}</span>`).join("") : `<span class="empty">none</span>`;
+  const mine = [...who].filter(([, ix]) => ix[0] === 0).map(([w]) => w);
+  const solo = mine.filter(w => who.get(w).length === 1), shared = mine.filter(w => who.get(w).length > 1);
+  const theirs = [...who].filter(([, ix]) => ix[0] !== 0).map(([w]) => w);
+  const one = opps.length === 1;
+  $("vsBody").innerHTML =
+    `<p class="hint">${g.size}×${g.size} · ${m}+ letters · ${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>` +
+    `<div class="row hint"><span>player</span><span>score · shared words cancelled</span></div>` +
+    ranked.map(p => `<div class="row"><span>${esc(p.name)} <small class="hint">${p.words.size} words</small></span><span>${p.score} · ${p.unique}</span></div>`).join("") +
+    `<h3>Only you (${solo.length})</h3><div class="chips">${chips(solo)}</div>` +
+    `<h3>${one ? "Only " + esc(opps[0].name) : "You missed"} (${theirs.length})</h3><div class="chips">${chips(theirs, one ? null : w => names(who.get(w)))}</div>` +
+    `<h3>${one ? "Both" : "Shared"} (${shared.length})</h3><div class="chips">${chips(shared, one ? null : w => names(who.get(w)))}</div>`;
+  $("sheetVs").classList.add("open");
+}
+
+function renderFriends() {
+  $("nameInput").value = store.get("cloggle.name", "");
+  $("btnShareLast").disabled = !lastPlayed() || running;
+  $("btnNewShared").disabled = running;
+  const games = store.get("cloggle.games", []).filter(g => (g.opponents || []).length);
+  if (!games.length) { $("friendsBody").innerHTML = `<p class="hint">No games with friends yet.</p>`; return; }
+  const rec = new Map();
+  for (const g of games) for (const o of g.opponents) {
+    const r = rec.get(o.pid) || { name: o.name, n: 0, w: 0, l: 0, t: 0, me: 0, them: 0 };
+    r.name = o.name; r.n++; r.me += g.score; r.them += o.score;
+    g.score > o.score ? r.w++ : g.score < o.score ? r.l++ : r.t++;
+    rec.set(o.pid, r);
+  }
+  $("friendsBody").innerHTML =
+    `<div class="row hint"><span>vs</span><span>won–lost–tied · avg you/them</span></div>` +
+    [...rec.values()].sort((a, b) => b.n - a.n).map(r =>
+      row(esc(r.name), `${r.w}–${r.l}–${r.t} · ${(r.me / r.n).toFixed(0)}/${(r.them / r.n).toFixed(0)}`)).join("") +
+    `<div class="log">` + games.slice(-10).reverse().map(g =>
+      `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size}${vsLabel(g)}</span><b>${g.score}</b><span></span><span>›</span></div>`).join("") + `</div>`;
+}
+$("btnFriends").onclick = () => { renderFriends(); $("sheetFriends").classList.add("open"); };
+$("nameInput").onchange = e => store.set("cloggle.name", e.target.value.trim().slice(0, 20));
+$("btnNewShared").onclick = () => { $("sheetFriends").classList.remove("open"); newSharedBoard(); };
+$("btnShareLast").onclick = () => { const r = lastPlayed(); if (r) shareRound(r); };
+$("btnOpenLink").onclick = () => {
+  const v = $("linkInput").value;
+  if (!receiveLink(v)) { $("linkInput").value = ""; $("linkInput").placeholder = "that doesn't look like a Cloggle link"; return; }
+  $("linkInput").value = ""; $("sheetFriends").classList.remove("open");
+};
+$("btnChallenge").onclick = () => { if (lastRound) shareRound(lastRound); };
+$("btnVs").onclick = () => { if (lastRound) showVs(lastRound.entry); };
+$("btnResend").onclick = () => { if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
+$("btnDecline").onclick = () => setSize(store.get("cloggle.size", 4));
+document.addEventListener("click", e => {   /* any logged game with friends reopens its comparison */
+  const d = e.target.closest(".vs[data-id]"); if (!d) return;
+  const g = store.get("cloggle.games", []).find(x => x.id === d.dataset.id); if (g) { d.closest(".sheet").classList.remove("open"); showVs(g); }
+});
+addEventListener("hashchange", takeHash);
+
 document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet").classList.remove("open"));
 document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) s.classList.remove("open"); }));
 
@@ -172014,8 +172273,10 @@ $("btnSound").onclick = () => { soundOn = !soundOn; store.set("cloggle.sound", s
 $("btnHaptic").onclick = () => { hapticOn = !hapticOn; store.set("cloggle.haptic", hapticOn); drawFx(); buzz(1); };
 drawFx();
 if (shuffleTheme) { const b = $("btnThemeShuffle"); b.setAttribute("aria-pressed", true); b.textContent = "Surprise me: on"; }
-setSize(store.get("cloggle.size", 4));
+const kept = pending; setSize(store.get("cloggle.size", 4));
+if (kept) { setPending(kept); showPendingBoard(); }
 $("input").disabled = true;
+takeHash();
 
 /* ---------- offline support ----------
    Solo play is entirely local, so the only thing network state gates is

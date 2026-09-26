@@ -11,6 +11,28 @@ a simple word game for your phone
 | `icon-192.png`, `icon-512.png` | manifest icons (`any maskable`) |
 | `apple-touch-icon.png` | iOS home-screen icon |
 
+## Playing with friends
+
+There's still no server: a game travels as a link. The URL hash carries the board
+(`b`, 16 or 25 letters, `Q` meaning Qu), the min-length rule (`m`), a random game id
+(`g`), the sender's device id and name (`p`, `n`) and, once they've played, their
+words (`w`). Whoever opens it gets that exact board with the tiles face down until they
+Shake. Their device re-solves the board and rescores the sender's words, so a link
+can't claim points the board doesn't contain.
+
+- **Challenge a friend** appears after every round and sends that board plus your words.
+- **Friends → Send a new board** sends an unplayed board so you can both play side by side
+  (tap Shake together; each round is its own 3-minute timer).
+- When the other person finishes, they tap **Send my result** — the same kind of link.
+  Opening a link for a board you've already played merges their result into your log and
+  shows the head-to-head (raw score, and classic Boggle score where shared words cancel).
+- **Friends** shows your won–lost–tied record per person; logged games against friends
+  are tappable in both Friends and Stats.
+
+On iPhone, links open in Safari rather than the installed home-screen app, and the two have
+separate `localStorage`. Paste the link into **Friends → Open a link** to keep everything in
+the app.
+
 ## Offline
 
 The game is entirely local — no accounts, no server, no network calls — so once the
