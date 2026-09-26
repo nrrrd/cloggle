@@ -10,6 +10,8 @@ a simple word game for your phone
 | `manifest.json` | web app manifest (installs to the home screen, standalone, no browser chrome) |
 | `icon-192.png`, `icon-512.png` | manifest icons (`any maskable`) |
 | `apple-touch-icon.png` | iOS home-screen icon |
+| `vendor/qrcode.min.js` | QR encoder ([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), MIT) |
+| `vendor/jsqr.min.js` | QR decoder ([jsQR](https://github.com/cozmo/jsQR), Apache-2.0, see `vendor/jsqr.LICENSE`); loaded only when scanning |
 
 ## Playing with friends
 
@@ -28,6 +30,14 @@ can't claim points the board doesn't contain.
   shows the head-to-head (raw score, and classic Boggle score where shared words cancel).
 - **Friends** shows your won–lost–tied record per person; logged games against friends
   are tappable in both Friends and Stats.
+
+**Sitting together:** every "send" shows a QR code first (with "Send as a link instead" for
+remote friends). The other phone taps **Scan** (after a round) or **Friends → Scan a code**
+and reads it with the in-app camera — no network needed. To compare at the end, each of you
+shows your result code and scans the other's, so both phones log the full head-to-head.
+
+Every logged game keeps its board. Tap a row in Stats or Friends to see the board, everyone's
+words, and the words nobody found; tap a word to light up its path.
 
 On iPhone, links open in Safari rather than the installed home-screen app, and the two have
 separate `localStorage`. Paste the link into **Friends → Open a link** to keep everything in

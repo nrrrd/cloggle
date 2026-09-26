@@ -1,7 +1,7 @@
 /* Cloggle service worker — offline support for solo play.
    Bump CACHE_VERSION on every deploy: the old cache is deleted on activate,
    and phones pick the new version up on their next online launch. */
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const CACHE = `cloggle-${CACHE_VERSION}`;
 
 /* Every local asset. Anything missing is skipped rather than failing the whole
@@ -13,6 +13,8 @@ const PRECACHE = [
   "./icon-192.png",
   "./icon-512.png",
   "./apple-touch-icon.png",
+  "./vendor/qrcode.min.js",
+  "./vendor/jsqr.min.js",
 ];
 
 /* Hosts that must always go straight to the network — never cached, never
