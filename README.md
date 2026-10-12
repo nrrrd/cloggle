@@ -39,6 +39,20 @@ shows your result code and scans the other's, so both phones log the full head-t
 Every logged game keeps its board. Tap a row in Stats or Friends to see the board, everyone's
 words, and the words nobody found; tap a word to light up its path.
 
+**Results** (after any round, or tap any logged game) work for any number of players:
+the headline is the share of the board's words each player found (flip to points with the
+toggle), then a side-by-side table — words, points, score with shared words cancelled, best
+word, words only that player found, words in common with you — and every word the board
+holds, highest-scoring first (or A–Z), with a ✓ under each player who found it and ★ where
+only one did. Tap a word to light up its path. **Play this board again** and **Challenge with
+this board** are at the bottom.
+
+**Pause** (❚❚ next to the clock) stops the timer and hides the letters; the app also pauses
+itself when it goes to the background. Paused rounds are marked in results and the leaderboard.
+
+**Stats → Leaderboard** ranks every result on this device (yours and friends') for one
+size/min-length; **Stats → Boards** lists each distinct board with its plays and best result.
+
 On iPhone, links open in Safari rather than the installed home-screen app, and the two have
 separate `localStorage`. Paste the link into **Friends → Open a link** to keep everything in
 the app.

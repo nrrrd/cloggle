@@ -51,6 +51,7 @@
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }   /* class rules like .after { display: flex } must not beat the attribute */
   html, body { margin: 0; height: 100%; }
   body {
     background: var(--bg); color: var(--ink); font-family: var(--font);
@@ -166,8 +167,42 @@
   .mini.n5 div { font-size: 16px; }
   .mini div.on { background: var(--sel); color: var(--sel-ink); }
   .mini div.on::after { content: attr(data-k); position: absolute; top: 2px; right: 4px; font-size: 10px; font-family: var(--font); }
-  #vsBody .chip { cursor: pointer; }
-  #vsBody .chip.on { color: var(--accent); text-decoration: underline; }
+  .clock { display: flex; align-items: center; gap: 8px; }
+  .pausebtn { padding: 6px 11px; font-size: 13px; border-radius: 999px; letter-spacing: -.1em; }
+  .board.paused .tile { color: transparent; }
+  .board.paused::after { content: "Paused"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                         font-size: 28px; font-weight: 700; color: var(--ink); pointer-events: none; }
+  .seg { display: inline-flex; background: var(--panel); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg button { font-size: 13px; padding: 5px 10px; border-radius: 999px; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+  .gamehead { position: sticky; top: -18px; z-index: 1; background: var(--bg); padding: 4px 0 2px; margin: 0 -2px; }
+  .gamehead .mini { max-width: 150px; }
+  .gamehead .mini div { font-size: 17px; }
+  .gamehead .mini.n5 div { font-size: 13px; }
+  .cmp { overflow-x: auto; margin-top: 6px; }
+  .cmp table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .cmp th, .cmp td { padding: 6px 5px; text-align: right; border-bottom: 1px solid var(--tile-edge); white-space: nowrap; vertical-align: top; }
+  .cmp th:first-child, .cmp td:first-child { text-align: left; color: var(--muted); font-weight: 400; font-size: 14px; }
+  .cmp thead th { font-size: 15px; color: var(--ink); max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+  .cmp .big { font-size: 22px; font-weight: 700; }
+  .cmp td.lead .big { color: var(--accent); }
+  .cmp small { color: var(--muted); display: block; font-size: 12px; }
+  .wl { display: grid; grid-template-columns: 1fr 2.2em repeat(var(--p), 3em); align-items: center; padding: 5px 2px;
+        border-bottom: 1px solid var(--tile-edge); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .wl > span:not(:first-child) { text-align: center; }
+  .wl.head { color: var(--muted); font-size: 12px; cursor: default; }
+  .wl.head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wl.none { color: var(--muted); }
+  .wl .pts { color: var(--muted); font-size: 13px; }
+  .wl .y { color: var(--good); font-weight: 700; }
+  .wl .y.solo { color: var(--accent); }
+  .wl.on { background: var(--panel); }
+  .lb { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 2px 8px; align-items: baseline; padding: 7px 2px;
+        border-bottom: 1px solid var(--tile-edge); cursor: pointer; }
+  .lb .rk { color: var(--muted); font-size: 13px; }
+  .lb .m { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; text-align: right; }
+  .lb small { grid-column: 2 / 4; color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -186,7 +221,7 @@
   </header>
 
   <div class="status">
-    <div class="timer" id="timer">3:00</div>
+    <div class="clock"><div class="timer" id="timer">3:00</div><button class="ghost pausebtn" id="btnPause" hidden aria-label="Pause">❚❚</button></div>
     <div class="score">score <b id="score">0</b></div>
     <button class="primary" id="btnStart">Shake</button>
   </div>
@@ -219,7 +254,7 @@
   <div class="after" id="afterRound" hidden>
     <button class="primary" id="btnChallenge">Challenge a friend</button>
     <button class="ghost" id="btnScan">Scan</button>
-    <button class="ghost" id="btnVs" hidden>Head to head</button>
+    <button class="ghost" id="btnVs">Results</button>
   </div>
 </div>
 
@@ -271,13 +306,18 @@
 </div></div>
 
 <div class="sheet" id="sheetVs"><div>
-  <h2 id="vsTitle">Head to head</h2>
+  <h2 id="vsTitle">Results</h2>
   <div id="vsBody"></div>
-  <div class="actions"><button class="ghost" data-close>Done</button></div>
+  <div class="actions">
+    <button class="ghost" id="btnReplay">Play this board again</button>
+    <button class="ghost" id="btnRechallenge">Challenge with this board</button>
+    <button class="ghost" data-close>Done</button>
+  </div>
 </div></div>
 
 <div class="sheet" id="sheetStats"><div>
   <h2>Stats</h2>
+  <div class="controls" id="statsTabs"></div>
   <div id="statsBody"></div>
   <div class="actions">
     <button class="ghost" id="btnExport">Copy stats as JSON</button>
@@ -171936,16 +171976,34 @@ function startRound() {
   const pc = pending; setPending(null);
   if (pc) { N = pc.size; drawSizeButtons(); letters = decodeBoard(pc.board); roundMinLen = pc.m; }
   else { newBoard(); roundMinLen = null; }
-  round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc };
+  round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc,
+            replayOf: pc && pc.replayOf, pauses: 0 };
   $("afterRound").hidden = true;
   renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
   $("foundTitle").textContent = "Found words"; setStartLabel("End", false); drawMinLen(); $("input").value = ""; $("input").disabled = false;
   setTrace("", "", `${solution.size} words hidden · min ${minLen()} letters`);
-  clearInterval(tick); drawTimer();
-  tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000);
+  clearPause(); $("btnPause").hidden = false; drawTimer(); startTick();
 }
+/* Pause hides the board (so it can't be studied for free) and stops the clock.
+   The app also pauses itself when it's backgrounded: a phone call shouldn't cost the round. */
+let paused = false;
+function startTick() { clearInterval(tick); tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000); }
+function pauseRound() {
+  if (!running || paused) return;
+  paused = true; clearInterval(tick); dragging = false; sel = []; drawSel(); round.pauses = (round.pauses || 0) + 1;
+  $("board").classList.add("paused"); $("input").disabled = true; $("btnPause").textContent = "▶"; $("btnPause").setAttribute("aria-label", "Resume");
+  setTrace("", "", "Paused — the board is hidden until you resume.");
+}
+function resumeRound() {
+  if (!running || !paused) return;
+  paused = false; $("board").classList.remove("paused"); $("input").disabled = false;
+  $("btnPause").textContent = "❚❚"; $("btnPause").setAttribute("aria-label", "Pause"); setTrace("", "", ""); startTick();
+}
+function clearPause() { paused = false; $("board").classList.remove("paused"); $("btnPause").textContent = "❚❚"; $("btnPause").setAttribute("aria-label", "Pause"); }
+$("btnPause").onclick = () => paused ? resumeRound() : pauseRound();
+document.addEventListener("visibilitychange", () => { if (document.hidden) pauseRound(); });
 function drawTimer() {
   const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
   const el = $("timer"); el.textContent = `${m}:${String(s).padStart(2, "0")}`; el.classList.toggle("low", timeLeft <= 15 && running);
@@ -171954,7 +172012,7 @@ function endRound() {
   if (!running) return;
   cancelEndConfirm(); startLock = Date.now() + 1500;   /* don't let the confirming tap shake a fresh board */
   $("btnStart").disabled = true; setTimeout(() => { $("btnStart").disabled = false; }, 1500);
-  running = false; clearInterval(tick); sel = []; drawSel(); $("grid").classList.add("idle");
+  running = false; clearInterval(tick); clearPause(); $("btnPause").hidden = true; sel = []; drawSel(); $("grid").classList.add("idle");
   setStartLabel("Shake", false); $("input").disabled = true; drawMinLen(); $("timer").classList.remove("low"); sfx.over(); buzz(3);
   const possible = [...solution.values()].reduce((a, b) => a + b, 0);
   const missed = [...solution.keys()].filter(w => !found.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b));
@@ -171965,22 +172023,24 @@ function endRound() {
   const entry = { date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
                   score, possible, found: found.size, possibleWords: solution.size, minLen: minLen(), longest, words: [...found.keys()],
                   id: round.id, board: round.board, opponents: round.opps.map(o => scoreOpp(o, solution, round.m)) };
+  if (round.replayOf) entry.replayOf = round.replayOf;
+  if (round.pauses) entry.pauses = round.pauses;
   /* accidental starts with nothing scored don't count toward stats, unless it was a friend's board */
   const keep = score > 0 || round.shared;
   if (keep) logGame(entry);
   lastRound = { entry, logged: keep };
   roundMinLen = null; drawMinLen();
   $("btnChallenge").textContent = entry.opponents.length ? "Send my result" : "Challenge a friend";
-  $("btnVs").hidden = !entry.opponents.length; $("afterRound").hidden = false;
+  $("afterRound").hidden = false;
   setTrace("", "", pending ? "Round over. Shake to play the board you were sent." : "Round over. Shake for a new board.");
   drawInvite();
-  if (entry.opponents.length) showVs(entry);
+  if (entry.opponents.length) showGame(entry);
 }
 
 /* ---------- word entry ---------- */
 function submitWord(raw) {
   const w = raw.toLowerCase().replace(/[^a-z]/g, "");
-  if (!running || !w) return;
+  if (!running || paused || !w) return;
   if (w.length < minLen()) { sfx.bad(); return setTrace(w, "bad", `${minLen()}+ letters`); }
   if (found.has(w)) { sfx.bad(); return setTrace(w, "bad", "already found"); }
   if (!solution.has(w)) { sfx.bad(); buzz(1); return setTrace(w, "bad", DICT.has(w) ? "not on this board" : "not a word"); }
@@ -172008,7 +172068,7 @@ function drawSel() {
 }
 const board = $("board");
 board.addEventListener("pointerdown", e => {
-  if (!running) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
+  if (!running || paused) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
   dragging = true; sel = [i]; drawSel(); sfx.tick(1); buzz(1); board.setPointerCapture(e.pointerId); e.preventDefault();
 });
 board.addEventListener("pointermove", e => {
@@ -172075,6 +172135,10 @@ $("btnThemeShuffle").onclick = e => { shuffleTheme = !shuffleTheme; store.set("c
 function logGame(g) { const games = store.get("cloggle.games", []); games.push(g); if (!store.set("cloggle.games", games)) console.warn("stats not saved (storage unavailable)"); }
 const gameMinLen = g => g.minLen || MINLEN_DEFAULT[g.size] || 3;   /* rounds logged before the toggle used the per-size default */
 function renderStats() {
+  $("statsTabs").innerHTML = seg("tab", statsTab, [["summary", "Summary"], ["leaders", "Leaderboard"], ["boards", "Boards"]]);
+  $("statsLog").hidden = statsTab !== "summary";
+  if (statsTab === "leaders") return renderLeaders();
+  if (statsTab === "boards") return renderBoards();
   const games = store.get("cloggle.games", []);
   const body = $("statsBody"), log = $("statsLog");
   if (!games.length) { body.innerHTML = `<p class="hint">No rounds logged yet. Stats save on this device.</p>`; log.innerHTML = ""; return; }
@@ -172094,8 +172158,42 @@ function renderStats() {
   log.innerHTML = games.slice(-15).reverse().map(g =>
     `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size} ${gameMinLen(g)}+${vsLabel(g)}</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
 }
+/* Every result on this device (yours and friends'), best first. Only boards
+   with the same size and min length are comparable, so pick one of those. */
+function renderLeaders() {
+  const games = store.get("cloggle.games", []).filter(g => g.possibleWords && g.words);
+  if (!games.length) { $("statsBody").innerHTML = `<p class="hint">No rounds logged yet.</p>`; return; }
+  const key = g => `${g.size}-${gameMinLen(g)}`, keys = [...new Set(games.map(key))].sort();
+  if (!keys.includes(statsCombo)) statsCombo = key(games[games.length - 1]);
+  const me = store.get("cloggle.name", "") || "You";
+  const rows = games.filter(g => key(g) === statsCombo).flatMap(g => playersOf(g).map(p => ({ p, g })))
+    .sort((a, b) => metricOf(b.p, b.g) - metricOf(a.p, a.g) || b.p.score - a.p.score).slice(0, 50);
+  $("statsBody").innerHTML =
+    `<div class="controls">${seg("combo", statsCombo, keys.map(k => { const [n, m] = k.split("-"); return [k, `${n}×${n} · ${m}+`]; }))}${metricSeg()}</div>` +
+    rows.map(({ p, g }, i) => `<div class="lb vs" data-id="${esc(g.id)}"><span class="rk">${i + 1}</span><span>${esc(p.me ? me : p.name)}</span>` +
+      `<span class="m">${fmtMetric(p, g)}</span><small>${fmtOther(p, g)} · ${p.n} words · ${shortDate(g.date)}${g.replayOf ? " · replay" : ""}${p.me && g.pauses ? " · paused" : ""}</small></div>`).join("");
+}
+/* One row per distinct board: replay it, or send it to someone. */
+function renderBoards() {
+  const groups = new Map();
+  for (const g of store.get("cloggle.games", [])) if (g.board) {
+    const k = g.board + "|" + gameMinLen(g); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(g);
+  }
+  if (!groups.size) { $("statsBody").innerHTML = `<p class="hint">Boards are saved from now on — play a round and it'll show up here.</p>`; return; }
+  const me = store.get("cloggle.name", "") || "You";
+  $("statsBody").innerHTML = `<div class="controls">${metricSeg()}</div><p class="hint">Tap a board to see every play of it, replay it, or challenge someone with it.</p>` +
+    [...groups.values()].sort((a, b) => b[b.length - 1].date.localeCompare(a[a.length - 1].date)).map(gs => {
+      const last = gs[gs.length - 1]; let best = null;
+      for (const g of gs) for (const p of playersOf(g)) if (!best || metricOf(p, g) > metricOf(best.p, best.g)) best = { p, g };
+      const people = new Set(gs.flatMap(g => playersOf(g).map(p => p.me ? me : p.name)));
+      return `<div class="lb vs" data-id="${esc(last.id)}"><span class="rk">${last.size}×${last.size}</span>` +
+        `<span style="font-family:var(--tile-font);letter-spacing:.08em">${esc(last.board.slice(0, last.size))}…</span>` +
+        `<span class="m">${fmtMetric(best.p, best.g)}</span><small>${gs.length} play${gs.length > 1 ? "s" : ""} · ${[...people].map(esc).join(", ")} · ` +
+        `best ${esc(best.p.me ? me : best.p.name)} · last ${shortDate(last.date)}</small></div>`;
+    }).join("");
+}
 const vsAttr = g => g.board ? ` class="vs" data-id="${esc(g.id)}"` : "";   /* rounds from before boards were saved can't reopen */
-const vsLabel = g => (g.opponents || []).map(o => ` · ${esc(o.name)} ${o.score}`).join("");
+const vsLabel = g => (g.opponents || []).map(o => ` · ${esc(o.name)} ${fmtMetric({ score: o.score, n: o.words.length }, g)}`).join("");
 function row(k, v) { return `<div class="row"><span>${k}</span><span>${v}</span></div>`; }
 $("btnStats").onclick = () => { renderStats(); $("sheetStats").classList.add("open"); };
 $("btnExport").onclick = async e => {
@@ -172145,7 +172243,8 @@ function drawInvite() {
   if (!pending || running) { el.hidden = true; return; }
   const p = pending, what = `${p.size}×${p.size} board (${p.m}+ letters)`;
   const scores = p.opps.map(o => `${esc(o.name)} scored <b>${o.score}</b>`).join(", ");
-  $("inviteText").innerHTML = p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
+  $("inviteText").innerHTML = p.replayOf ? `Replaying a ${what} from ${shortDate(p.replayDate)}. Best on it so far: ${esc(p.replayBest)}. Shake when you're ready.`
+    : p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
     : p.fromName ? `${esc(p.fromName)} sent you a ${what}. Shake when you're both ready.`
     : `Your shared ${what} is ready. Shake when you're both ready.`;
   $("btnResend").hidden = !p.mine;
@@ -172165,7 +172264,7 @@ function receiveLink(str) {
       store.set("cloggle.games", games);
       if (lastRound && lastRound.entry.id === g.id) lastRound.entry = g;
     }
-    showVs(g); return true;
+    showGame(g); return true;
   }
   if (running && round.id === c.id) {   /* a result for the board you're on right now: scored when the round ends */
     if (from && from.words) upsertOpp(round.opps, from);
@@ -172289,37 +172388,88 @@ function newSharedBoard() {
   shareLink(p, null, `Cloggle: here's a ${N}×${N} board for us both. Shake when we're both ready.`);
 }
 
-function showVs(g) {
-  const m = gameMinLen(g), opps = g.opponents || [];
-  const players = [{ name: "You", words: new Set(g.words), score: g.score }, ...opps.map(o => ({ name: o.name, words: new Set(o.words), score: o.score }))];
-  const who = new Map();   /* word -> indices of players who found it */
-  players.forEach((p, i) => p.words.forEach(w => { if (!who.has(w)) who.set(w, []); who.get(w).push(i); }));
-  /* classic Boggle rule: a word anyone else also found scores for nobody */
-  players.forEach(p => p.unique = [...p.words].filter(w => who.get(w).length === 1).reduce((a, w) => a + points(w, m), 0));
-  const ranked = players.slice().sort((a, b) => b.score - a.score);
-  const byLen = (a, b) => b.length - a.length || a.localeCompare(b);
-  const names = ix => ix.filter(i => i).map(i => esc(players[i].name)).join(", ");
-  const chips = (ws, tag) => ws.length ? ws.sort(byLen).map(w => `<span class="chip">${w}${tag ? ` <small>${tag(w)}</small>` : ""}</span>`).join("") : `<span class="empty">none</span>`;
-  const mine = [...who].filter(([, ix]) => ix[0] === 0).map(([w]) => w);
-  const solo = mine.filter(w => who.get(w).length === 1), shared = mine.filter(w => who.get(w).length > 1);
-  const theirs = [...who].filter(([, ix]) => ix[0] !== 0).map(([w]) => w);
-  const one = opps.length === 1, ls = g.board ? decodeBoard(g.board) : null;
-  const nobody = ls ? [...solveBoard(ls, g.size, m).keys()].filter(w => !who.has(w)) : [];
-  $("vsTitle").textContent = opps.length ? "Head to head" : "Game";
-  $("vsBody").innerHTML =
-    `<p class="hint">${g.size}×${g.size} · ${m}+ letters · ${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>` +
-    (ls ? `<div class="mini n${g.size}" style="grid-template-columns:repeat(${g.size},1fr)">${ls.map(L => `<div>${L === "QU" ? "Qu" : L}</div>`).join("")}</div><p class="hint" style="text-align:center">Tap a word to see it on the board.</p>` : "") +
-    (opps.length
-      ? `<div class="row hint"><span>player</span><span>score · shared words cancelled</span></div>` +
-        ranked.map(p => `<div class="row"><span>${esc(p.name)} <small class="hint">${p.words.size} words</small></span><span>${p.score} · ${p.unique}</span></div>`).join("") +
-        `<h3>Only you (${solo.length})</h3><div class="chips">${chips(solo)}</div>` +
-        `<h3>${one ? "Only " + esc(opps[0].name) : "You missed"} (${theirs.length})</h3><div class="chips">${chips(theirs, one ? null : w => names(who.get(w)))}</div>` +
-        `<h3>${one ? "Both" : "Shared"} (${shared.length})</h3><div class="chips">${chips(shared, one ? null : w => names(who.get(w)))}</div>`
-      : row("Score", `${g.score} of ${g.possible}`) + `<h3>Your words (${solo.length})</h3><div class="chips">${chips(solo)}</div>`) +
-    (ls ? `<h3>${opps.length ? "Nobody found" : "Missed"} (${nobody.length})</h3><div class="chips">${chips(nobody).replace(/class="chip"/g, 'class="chip missed"')}</div>` : "");
-  $("vsBody").dataset.board = g.board || ""; $("vsBody").dataset.size = g.size;
-  $("sheetVs").classList.add("open");
+/* ---------- results: one sheet for any number of players ----------
+   The headline number is the share of the board's words each player found
+   (or points, if you flip the toggle); below it is a side-by-side table and
+   every word the board holds, with a mark under each player who found it. */
+let metric = store.get("cloggle.metric", "pct"), wordSort = store.get("cloggle.wordsort", "score");
+let shownGame = null, statsTab = "summary", statsCombo = null;
+const shortDate = d => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const pct = (n, g) => g.possibleWords ? 100 * n / g.possibleWords : 0;
+const fmtPct = v => (v >= 10 || v === 0 ? v.toFixed(0) : v.toFixed(1)) + "%";
+const metricOf = (p, g) => metric === "pct" ? pct(p.n, g) : p.score;
+const fmtMetric = (p, g) => metric === "pct" ? fmtPct(pct(p.n, g)) : String(p.score);
+const fmtOther = (p, g) => metric === "pct" ? `${p.score} pts` : fmtPct(pct(p.n, g));
+const seg = (key, cur, opts) => `<div class="seg" data-seg="${key}">${opts.map(([v, label]) => `<button data-v="${v}" aria-pressed="${v === cur}">${label}</button>`).join("")}</div>`;
+const metricSeg = () => seg("metric", metric, [["pct", "% of words"], ["pts", "points"]]);
+function playersOf(g) {
+  return [{ name: "You", words: g.words, score: g.score, me: true },
+          ...(g.opponents || []).map(o => ({ name: o.name, words: o.words, score: o.score }))]
+    .map(p => ({ ...p, set: new Set(p.words), n: p.words.length }));
 }
+const sameBoard = g => store.get("cloggle.games", []).filter(x => x.board && x.board === g.board && gameMinLen(x) === gameMinLen(g));
+
+function showGame(g) {
+  const keepScroll = shownGame && shownGame.id === g.id && $("sheetVs").classList.contains("open");
+  const scroller = $("sheetVs").firstElementChild, top = scroller.scrollTop;
+  shownGame = g;
+  const m = gameMinLen(g), ps = playersOf(g), ls = g.board ? decodeBoard(g.board) : null, multi = ps.length > 1;
+  const all = ls ? solveBoard(ls, g.size, m) : new Map(ps.flatMap(p => p.words).map(w => [w, points(w, m)]));
+  ps.forEach(p => p.words.forEach(w => all.has(w) || all.set(w, points(w, m))));
+  const count = w => ps.reduce((a, p) => a + p.set.has(w), 0);
+  const byScore = (a, b) => all.get(b) - all.get(a) || b.length - a.length || a.localeCompare(b);
+  ps.forEach(p => {
+    p.unique = p.words.filter(w => count(w) === 1);
+    p.uniquePts = p.unique.reduce((a, w) => a + points(w, m), 0);   /* classic Boggle: shared words score for nobody */
+    p.best = p.words.slice().sort(byScore)[0];
+    p.common = p.me ? null : p.words.filter(w => ps[0].set.has(w)).length;
+  });
+  const lead = Math.max(...ps.map(p => metricOf(p, g)));
+  const tr = (label, f, lead) => `<tr><td>${label}</td>${ps.map(p => `<td${lead && multi && metricOf(p, g) === lead ? ' class="lead"' : ""}>${f(p)}</td>`).join("")}</tr>`;
+  const words = [...all.keys()].sort(wordSort === "az" ? (a, b) => a.localeCompare(b) : byScore);
+  const attempts = sameBoard(g);
+  $("vsTitle").textContent = multi ? "Head to head" : "Results";
+  $("vsBody").innerHTML =
+    `<p class="hint">${g.size}×${g.size} · ${m}+ letters · ${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` +
+      `${g.replayOf ? " · replay" : ""}${g.pauses ? ` · paused ${g.pauses}×` : ""}</p>` +
+    `<div class="gamehead">` +
+      (ls ? `<div class="mini n${g.size}" style="grid-template-columns:repeat(${g.size},1fr)">${ls.map(L => `<div>${L === "QU" ? "Qu" : L}</div>`).join("")}</div>` : "") +
+      `<div class="controls">${metricSeg()}${seg("sort", wordSort, [["score", "by score"], ["az", "A–Z"]])}</div>` +
+    `</div>` +
+    `<div class="cmp"><table><thead><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join("")}</tr></thead><tbody>` +
+      tr(metric === "pct" ? "Found" : "Score", p => `<span class="big">${fmtMetric(p, g)}</span><small>${fmtOther(p, g)}</small>`, lead) +
+      tr("Words", p => `${p.n}<small>of ${g.possibleWords || all.size}</small>`) +
+      tr("Points", p => `${p.score}<small>of ${g.possible ?? "?"}</small>`) +
+      (multi ? tr("Shared cancel", p => p.uniquePts) : "") +
+      tr("Best word", p => p.best ? `${p.best}<small>${all.get(p.best)} pts</small>` : "—") +
+      (multi ? tr("Only them", p => p.unique.length) + tr("In common", p => p.me ? "—" : p.common) : "") +
+    `</tbody></table></div>` +
+    `<h3>All words (${all.size})</h3>` +
+    `<p class="hint">${multi ? "✓ found it · ★ only one who did · " : ""}tap a word to see it on the board</p>` +
+    `<div class="wl head" style="--p:${ps.length}"><span>word</span><span>pts</span>${ps.map(p => `<span>${esc(p.name)}</span>`).join("")}</div>` +
+    words.map(w => { const c = count(w);
+      return `<div class="wl${c ? "" : " none"}" style="--p:${ps.length}" data-w="${w}"><span>${w}</span><span class="pts">${all.get(w)}</span>` +
+        ps.map(p => p.set.has(w) ? `<span class="y${multi && c === 1 ? " solo" : ""}">${multi && c === 1 ? "★" : "✓"}</span>` : `<span>·</span>`).join("") + `</div>`; }).join("") +
+    (attempts.length > 1 ? `<h3>Every play of this board (${attempts.length})</h3><div class="log">` + attempts.slice().reverse().map(x =>
+      `<div class="vs" data-id="${esc(x.id)}"><span>${shortDate(x.date)}${x.id === g.id ? " (this one)" : ""}${vsLabel(x)}</span><b>${fmtMetric({ score: x.score, n: x.found }, x)}</b><span></span><span>›</span></div>`).join("") + `</div>` : "");
+  $("vsBody").dataset.board = g.board || ""; $("vsBody").dataset.size = g.size;
+  $("btnReplay").hidden = $("btnRechallenge").hidden = !g.board;
+  $("btnReplay").disabled = running;
+  $("sheetVs").classList.add("open");
+  scroller.scrollTop = keepScroll ? top : 0;
+}
+function replayBoard(g) {
+  if (running || !g.board) return;
+  const attempts = sameBoard(g), first = attempts[0] || g;
+  let best = null;
+  for (const x of attempts) for (const p of playersOf(x)) { const v = metricOf(p, x); if (!best || v > best.v) best = { v, label: `${p.me ? "you" : p.name}, ${fmtMetric(p, x)}` }; }
+  setPending({ id: randId(), board: g.board, size: g.size, m: gameMinLen(g), opps: [], replayOf: first.replayOf || first.id,
+               replayDate: first.date, replayBest: best ? best.label : "—" });
+  document.querySelectorAll(".sheet.open").forEach(s => s.classList.remove("open"));
+  showPendingBoard(); $("chips").innerHTML = ""; $("afterRound").hidden = true; setTrace("", "", "Board loaded.");
+}
+$("btnReplay").onclick = () => shownGame && replayBoard(shownGame);
+$("btnRechallenge").onclick = () => shownGame && shareRound({ entry: shownGame, logged: true });
 function wordPath(ls, n, w) {   /* tile indices spelling w on the board, or null */
   const at = (k, i, used) => {
     const L = ls[i].toLowerCase(); if (!w.startsWith(L, k)) return null;
@@ -172331,12 +172481,10 @@ function wordPath(ls, n, w) {   /* tile indices spelling w on the board, or null
   return null;
 }
 $("vsBody").addEventListener("click", e => {
-  const chip = e.target.closest(".chip"), body = $("vsBody"), mini = body.querySelector(".mini"); if (!chip || !mini) return;
-  const w = chip.firstChild.textContent.trim(), n = +body.dataset.size;
-  const path = wordPath(decodeBoard(body.dataset.board), n, w) || [];
-  body.querySelectorAll(".chip.on").forEach(c => c.classList.remove("on")); chip.classList.add("on");
+  const r = e.target.closest(".wl[data-w]"), body = $("vsBody"), mini = body.querySelector(".mini"); if (!r || !mini) return;
+  const path = wordPath(decodeBoard(body.dataset.board), +body.dataset.size, r.dataset.w) || [];
+  body.querySelectorAll(".wl.on").forEach(c => c.classList.remove("on")); r.classList.add("on");
   [...mini.children].forEach((t, i) => { const k = path.indexOf(i); t.classList.toggle("on", k >= 0); t.dataset.k = k >= 0 ? k + 1 : ""; });
-  mini.scrollIntoView({ block: "nearest", behavior: "smooth" });
 });
 
 function renderFriends() {
@@ -172348,16 +172496,18 @@ function renderFriends() {
   const rec = new Map();
   for (const g of games) for (const o of g.opponents) {
     const r = rec.get(o.pid) || { name: o.name, n: 0, w: 0, l: 0, t: 0, me: 0, them: 0 };
-    r.name = o.name; r.n++; r.me += g.score; r.them += o.score;
-    g.score > o.score ? r.w++ : g.score < o.score ? r.l++ : r.t++;
+    const a = metricOf({ score: g.score, n: g.found }, g), b = metricOf({ score: o.score, n: o.words.length }, g);
+    r.name = o.name; r.n++; r.me += a; r.them += b;
+    a > b ? r.w++ : a < b ? r.l++ : r.t++;
     rec.set(o.pid, r);
   }
   $("friendsBody").innerHTML =
+    `<div class="controls">${metricSeg()}</div>` +
     `<div class="row hint"><span>vs</span><span>won–lost–tied · avg you/them</span></div>` +
-    [...rec.values()].sort((a, b) => b.n - a.n).map(r =>
-      row(esc(r.name), `${r.w}–${r.l}–${r.t} · ${(r.me / r.n).toFixed(0)}/${(r.them / r.n).toFixed(0)}`)).join("") +
+    [...rec.values()].sort((a, b) => b.n - a.n).map(r => { const f = v => metric === "pct" ? fmtPct(v) : v.toFixed(0);
+      return row(esc(r.name), `${r.w}–${r.l}–${r.t} · ${f(r.me / r.n)}/${f(r.them / r.n)}`); }).join("") +
     `<div class="log">` + games.slice(-10).reverse().map(g =>
-      `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size}${vsLabel(g)}</span><b>${g.score}</b><span></span><span>›</span></div>`).join("") + `</div>`;
+      `<div${vsAttr(g)}><span>${shortDate(g.date)} ${g.size}×${g.size}${vsLabel(g)}</span><b>${fmtMetric({ score: g.score, n: g.found }, g)}</b><span></span><span>›</span></div>`).join("") + `</div>`;
 }
 $("btnFriends").onclick = () => { renderFriends(); $("sheetFriends").classList.add("open"); };
 $("nameInput").onchange = e => store.set("cloggle.name", e.target.value.trim().slice(0, 20));
@@ -172372,14 +172522,25 @@ $("btnChallenge").onclick = () => { if (lastRound) shareRound(lastRound); };
 $("btnScan").onclick = startScan; $("btnScanFriends").onclick = startScan;
 $("btnSendLink").onclick = sendOutgoing;
 $("btnScanClose").onclick = () => { stopScan(); $("sheetScan").classList.remove("open"); };
-$("btnVs").onclick = () => { if (lastRound) showVs(lastRound.entry); };
+$("btnVs").onclick = () => { if (lastRound) showGame(lastRound.entry); };
 $("btnResend").onclick = () => { if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
 $("btnDecline").onclick = () => setSize(store.get("cloggle.size", 4));
 document.addEventListener("click", e => {   /* any logged game reopens its board and words */
   const d = e.target.closest(".vs[data-id]"); if (!d) return;
-  const g = store.get("cloggle.games", []).find(x => x.id === d.dataset.id); if (g) { d.closest(".sheet").classList.remove("open"); showVs(g); }
+  const g = store.get("cloggle.games", []).find(x => x.id === d.dataset.id); if (g) { d.closest(".sheet").classList.remove("open"); showGame(g); }
 });
 addEventListener("hashchange", takeHash);
+document.addEventListener("click", e => {
+  const b = e.target.closest(".seg button"); if (!b) return;
+  const k = b.parentElement.dataset.seg, v = b.dataset.v;
+  if (k === "metric") { metric = v; store.set("cloggle.metric", v); }
+  else if (k === "sort") { wordSort = v; store.set("cloggle.wordsort", v); }
+  else if (k === "tab") statsTab = v;
+  else if (k === "combo") statsCombo = v;
+  if ($("sheetVs").classList.contains("open") && shownGame) showGame(shownGame);
+  if ($("sheetStats").classList.contains("open")) renderStats();
+  if ($("sheetFriends").classList.contains("open")) renderFriends();
+});
 
 document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet").classList.remove("open"));
 document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) { s.classList.remove("open"); if (s.id === "sheetScan") stopScan(); } }));
