@@ -170,6 +170,9 @@
   .clock { display: flex; align-items: center; gap: 8px; }
   .live { text-align: center; margin-top: -6px; }
   #lobbyPlayers .row span:last-child { font-weight: 400; }
+  .person { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--tile-edge); }
+  .person span { flex: 1; }
+  .person button { padding: 8px 12px; }
   .pausebtn { padding: 6px 11px; font-size: 13px; border-radius: 999px; letter-spacing: -.1em; }
   .board.paused .tile { color: transparent; }
   .board.paused::after { content: "Paused"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -286,9 +289,12 @@
   <div id="onlineSection" hidden>
     <h2 style="margin-top:18px">Play online</h2>
     <p class="hint">Results arrive by themselves — no scanning at the end. Invite people with the QR code or link that comes up.</p>
+    <div id="peopleList"></div>
+    <p class="hint" style="margin-top:12px">Someone new? Start a game and they scan the QR code (or open the link); after that they're on your list above.</p>
     <div class="actions" style="margin-top:0">
-      <button class="ghost" id="btnNewSync">Live game (start together)</button>
-      <button class="ghost" id="btnNewAsync">Play-when-you-can game</button>
+      <button class="ghost" id="btnNew1v1">Live 1-on-1</button>
+      <button class="ghost" id="btnNewSync">Live group</button>
+      <button class="ghost" id="btnNewAsync">Play-when-you-can</button>
       <button class="ghost" id="btnLiveFriends"></button>
     </div>
     <p class="hint" id="onlineHint"></p>
@@ -304,8 +310,14 @@
   <div class="actions"><button class="ghost" data-close>Done</button></div>
 </div></div>
 
+<div class="sheet" id="sheetIncoming"><div>
+  <h2>Game invites</h2>
+  <div id="incomingList"></div>
+  <div class="actions"><button class="ghost" data-close>Later</button></div>
+</div></div>
+
 <div class="sheet" id="sheetLobby"><div>
-  <h2>Live game</h2>
+  <h2 id="lobbyTitle">Live game</h2>
   <p class="hint" id="lobbyHint"></p>
   <div id="lobbyPlayers"></div>
   <div class="actions">
@@ -172066,6 +172078,7 @@ function endRound() {
   drawInvite();
   if (entry.opponents.length || entry.online) showGame(entry);
   drawLive();
+  if (typeof drawIncoming === "function" && incoming.length) setTimeout(drawIncoming, 1500);
 }
 
 /* ---------- word entry ---------- */
@@ -172554,7 +172567,7 @@ function renderFriends() {
     `<div class="log">` + games.slice(-10).reverse().map(g =>
       `<div${vsAttr(g)}><span>${shortDate(g.date)} ${g.size}×${g.size}${vsLabel(g)}</span><b>${fmtMetric({ score: g.score, n: g.found }, g)}</b><span></span><span>›</span></div>`).join("") + `</div>`;
 }
-$("btnFriends").onclick = () => { renderFriends(); $("sheetFriends").classList.add("open"); };
+$("btnFriends").onclick = () => { renderFriends(); drawPeople(); $("sheetFriends").classList.add("open"); };
 $("nameInput").onchange = e => store.set("cloggle.name", e.target.value.trim().slice(0, 20));
 $("btnNewShared").onclick = () => { $("sheetFriends").classList.remove("open"); newSharedBoard(); };
 $("btnShareLast").onclick = () => { const r = lastPlayed(); if (r) shareRound(r); };
@@ -172620,6 +172633,7 @@ function fbInit() {
     net.db = fb.getDatabase(app);
     if (FB_EMULATOR) fb.connectDatabaseEmulator(net.db, "127.0.0.1", 9000);
     net.uid = (await fb.signInAnonymously(auth)).user.uid;
+    store.set("cloggle.wasOnline", true); listenInvites();
     fb.onValue(fb.ref(net.db, ".info/serverTimeOffset"), s => { net.offset = s.val() || 0; });
     return net;
   })().catch(e => { net.ready = null; console.warn("online play unavailable", e); reportNetworkFailure(); throw e; });
@@ -172636,7 +172650,7 @@ function watchCurrent(gid) {   /* players (and, for live games, the start time) 
   if (cur.gid === gid) return;
   cur.off.forEach(f => f()); Object.assign(cur, { gid, players: {}, meta: null, off: [] });
   cur.off.push(fb.onValue(gref(gid, "players"), s => {
-    cur.players = s.val() || {};
+    cur.players = s.val() || {}; notePeople(cur.players);
     drawInvite(); drawLobby(); drawLive(); maybeStart();
   }));
   if (pending && pending.online && pending.online.mode === "sync")
@@ -172655,21 +172669,30 @@ function onlineStatus(p) {   /* async: who has finished — never what they got 
          (not.length ? `Still to play: ${not.join(", ")}.` : "");
 }
 
-async function createOnline(mode) {
+async function createOnline(mode, opts = {}) {   /* opts: { auto: start when a 2nd player joins, to: { uid, name } invite directly } */
   if (running) return;
   const name = myName(); if (name === null) return;
   $("onlineHint").textContent = "Connecting…";
   try { await fbInit(); } catch { $("onlineHint").textContent = "Couldn't reach the server. QR codes and links still work offline."; return; }
   newBoard();
   const gid = randId() + randId().slice(0, 4);
-  const meta = { board: encodeBoard(letters), size: N, m: minLen(), mode, host: net.uid, created: fb.serverTimestamp() };
+  const auto = mode === "sync" && !!(opts.auto || opts.to);
+  const meta = { board: encodeBoard(letters), size: N, m: minLen(), mode, host: net.uid, created: fb.serverTimestamp(), auto };
   try {
     await fb.set(gref(gid, "meta"), meta);
     await fb.update(gref(gid, `players/${net.uid}`), { name, pid: myPid });
-  } catch (e) { $("onlineHint").textContent = "The server refused that (" + (e.code || e.message) + ")."; return; }
+    if (opts.to) await fb.set(fb.ref(net.db, `invites/${opts.to.uid}/${gid}`), { from: net.uid, name, mode, size: N, m: meta.m, at: fb.serverTimestamp() });
+  } catch (e) {
+    $("onlineHint").textContent = /permission/i.test(e.code || e.message)
+      ? "The server refused that (PERMISSION_DENIED). Most likely the database rules haven't been published yet — see README → Online play."
+      : "The server refused that (" + (e.code || e.message) + ").";
+    return;
+  }
   $("onlineHint").textContent = "";
-  enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true, online: { gid, mode, host: true } });
+  enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true,
+                online: { gid, mode, host: true, auto, to: opts.to ? opts.to.uid : null, toName: opts.to ? opts.to.name : null } });
   if (mode === "sync") openLobby();
+  if (opts.to) { if (mode === "async") setTrace("", "", `Sent to ${opts.to.name}. Shake whenever you like.`); return; }   /* no QR needed */
   shareLink(pending, null, mode === "sync" ? `Cloggle: join my live ${N}×${N} game.` : `Cloggle: play this ${N}×${N} board when you can — you'll see my score once you've played.`);
 }
 function enterOnline(p) {
@@ -172678,6 +172701,7 @@ function enterOnline(p) {
 }
 async function joinFromLink(c) {
   const offline = () => {   /* server unreachable: still playable as an ordinary shared board (link without the online flag) */
+    if (!c.board) { setTrace("", "", "Couldn't reach the server. Try again when you're online."); return; }
     receiveLink("#" + new URLSearchParams({ g: c.id, b: c.board, m: c.m, ...(c.from ? { p: c.from.pid, n: c.from.name } : {}) }));
     setTrace("", "", "Couldn't reach the server — playing it offline. Swap QR codes at the end.");
   };
@@ -172693,7 +172717,7 @@ async function joinFromLink(c) {
   try { await fb.update(gref(c.id, `players/${net.uid}`), { name, pid: myPid }); } catch { return offline(); }
   const fromMe = c.from && c.from.pid === myPid;
   enterOnline({ id: c.id, board: meta.board, size: meta.size, m: meta.m, opps: [], fromName: fromMe ? null : c.from && c.from.name,
-                mine: meta.host === net.uid, online: { gid: c.id, mode: meta.mode, host: meta.host === net.uid } });
+                mine: meta.host === net.uid, online: { gid: c.id, mode: meta.mode, host: meta.host === net.uid, auto: !!meta.auto } });
   setTrace("", "", "Joined.");
   if (meta.mode === "sync") openLobby();
 }
@@ -172705,20 +172729,27 @@ function openLobby() {
   fbInit().then(() => { watchCurrent(pending.id); drawLobby(); }).catch(() => {});
   $("sheetLobby").classList.add("open"); drawLobby();
 }
+function drawLiveLabel() { $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`; }
 function drawLobby() {
+  drawLiveLabel();
   if (!pending || !pending.online || pending.online.mode !== "sync") return;
   const ps = Object.entries(cur.gid === pending.id ? cur.players : {});
   const me = ps.find(([u]) => u === net.uid);
-  $("lobbyPlayers").innerHTML = ps.length ? ps.map(([u, v]) => row(esc(v.name) + (u === net.uid ? " (you)" : ""), v.ready ? "✓ ready" : "not ready")).join("") : `<p class="hint">Connecting…</p>`;
+  $("lobbyPlayers").innerHTML = ps.length ? ps.map(([u, v]) => row(esc(v.name) + (u === net.uid ? " (you)" : ""), pending.online.auto ? "here" : v.ready ? "✓ ready" : "not ready")).join("") : `<p class="hint">Connecting…</p>`;
+  const o = pending.online;
+  $("btnReady").hidden = !!o.auto;
+  $("btnLobbyInvite").hidden = !!o.to;
   $("btnReady").textContent = me && me[1].ready ? "Not ready" : "I'm ready";
-  $("lobbyHint").textContent = ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
+  $("lobbyTitle").textContent = o.auto ? "Waiting room" : "Live game";
+  $("lobbyHint").textContent = o.auto
+    ? (ps.length < 2 ? `Waiting for ${o.toName || "someone"} to join — the countdown starts the moment they do.` : "Starting…")
+    : ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
     : "When everyone is ready, all phones count down together. There's no pausing in a live game.";
-  $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`;
 }
 function maybeStart() {   /* the host's phone sets the start time; the server rejects it from anyone else */
   if (!pending || !pending.online || pending.online.mode !== "sync" || !pending.online.host || pending.online.start) return;
   const ps = Object.values(cur.players);
-  if (ps.length >= 2 && ps.every(v => v.ready)) fb.set(gref(pending.id, "start"), Math.round(serverNow() + 5000)).catch(e => console.warn("start", e));
+  if (ps.length >= 2 && (pending.online.auto || ps.every(v => v.ready))) fb.set(gref(pending.id, "start"), Math.round(serverNow() + 5000)).catch(e => console.warn("start", e));
 }
 function beginCountdown() {
   if (countdown || running || !pending || !pending.online.start) return;
@@ -172801,12 +172832,12 @@ function watchResults(gid) {
     if (lastRound && lastRound.entry.id === gid) lastRound.entry = g;
     if ($("sheetVs").classList.contains("open") && shownGame && shownGame.id === gid) showGame(g);
   };
-  fb.onValue(gref(gid, "players"), s => { st.players = s.val() || {}; merge(); });
+  fb.onValue(gref(gid, "players"), s => { st.players = s.val() || {}; notePeople(st.players); merge(); });
   fb.onValue(gref(gid, "results"), s => { st.results = s.val() || {}; merge(); }, e => console.warn("results", e));
 }
 function resumeOnline() {   /* at launch: re-follow recent games, retry results that didn't make it up */
   const list = remembered();
-  if (!onlineEnabled() || !online || !(list.length || (pending && pending.online))) return;
+  if (!onlineEnabled() || !online || !(list.length || (pending && pending.online) || store.get("cloggle.wasOnline", false))) return;
   fbInit().then(() => {
     const games = store.get("cloggle.games", []);
     for (const r of list) {
@@ -172817,7 +172848,69 @@ function resumeOnline() {   /* at launch: re-follow recent games, retry results 
   }).catch(() => {});
 }
 
+
+/* ---------- people you've played online: invite them without a link ----------
+   Anyone who has shared an online game with you is remembered by their
+   (anonymous) account id, so a game can be offered straight to their app.
+   Their app has to be open to see it — there are no push notifications. */
+const people = () => store.get("cloggle.people", {});
+function notePeople(players) {
+  const all = people(); let changed = false;
+  for (const [u, v] of Object.entries(players || {})) {
+    if (u === net.uid || !v || !v.name) continue;
+    if (!all[u] || all[u].name !== v.name) { all[u] = { name: v.name, pid: v.pid, at: Date.now() }; changed = true; }
+  }
+  if (changed) { store.set("cloggle.people", all); drawPeople(); }
+}
+function drawPeople() {
+  const list = Object.entries(people()).sort((a, b) => b[1].at - a[1].at);
+  $("peopleList").innerHTML = list.length
+    ? list.map(([u, v]) => `<div class="person"><span>${esc(v.name)}</span><button class="ghost" data-invite="sync" data-uid="${esc(u)}">Play live</button><button class="ghost" data-invite="async" data-uid="${esc(u)}">Send a board</button></div>`).join("")
+    : `<p class="hint">Nobody yet.</p>`;
+}
+$("peopleList").addEventListener("click", e => {
+  const b = e.target.closest("[data-invite]"); if (!b) return;
+  const p = people()[b.dataset.uid]; if (!p) return;
+  $("sheetFriends").classList.remove("open");
+  createOnline(b.dataset.invite, { to: { uid: b.dataset.uid, name: p.name } });
+});
+
+let incoming = [], inviteOff = null;
+const seenInvites = new Set(store.get("cloggle.seenInvites", []));
+function listenInvites() {
+  if (inviteOff || !net.uid) return;
+  inviteOff = fb.onValue(fb.ref(net.db, `invites/${net.uid}`), s => {
+    incoming = [];
+    for (const [gid, v] of Object.entries(s.val() || {})) {
+      const max = v.mode === "sync" ? 15 * 60e3 : 7 * 864e5;   /* a live invite goes stale fast */
+      if (serverNow() - (v.at || 0) > max) { fb.remove(fb.ref(net.db, `invites/${net.uid}/${gid}`)).catch(() => {}); continue; }
+      incoming.push({ gid, ...v });
+    }
+    drawIncoming();
+  }, e => console.warn("invites", e));
+}
+function drawIncoming() {
+  const list = incoming.filter(v => !(pending && pending.id === v.gid));
+  $("incomingList").innerHTML = list.length ? list.map(v =>
+    `<div class="person"><span><b>${esc(v.name)}</b> ${v.mode === "sync" ? "wants to play live" : "sent you a board to play when you can"} <small class="hint">${v.size}×${v.size} · ${v.m}+</small></span>` +
+    `<button class="primary" data-join="${esc(v.gid)}">${v.mode === "sync" ? "Join" : "Accept"}</button><button class="ghost" data-decline="${esc(v.gid)}">No</button></div>`).join("")
+    : `<p class="hint">No invites right now.</p>`;
+  const fresh = list.filter(v => !seenInvites.has(v.gid));
+  if (!fresh.length) { if (!list.length) $("sheetIncoming").classList.remove("open"); return; }
+  if (running || countdown) { setTrace("", "", `${fresh[0].name} invited you — it'll pop up when this round ends.`); return; }
+  fresh.forEach(v => seenInvites.add(v.gid)); store.set("cloggle.seenInvites", [...seenInvites].slice(-50));
+  $("sheetIncoming").classList.add("open"); sfx.good(3); buzz(3);
+}
+$("incomingList").addEventListener("click", e => {
+  const j = e.target.closest("[data-join]"), d = e.target.closest("[data-decline]"); if (!j && !d) return;
+  const gid = (j || d).dataset.join || (j || d).dataset.decline, v = incoming.find(x => x.gid === gid);
+  fb.remove(fb.ref(net.db, `invites/${net.uid}/${gid}`)).catch(() => {});
+  $("sheetIncoming").classList.remove("open");
+  if (j && v) joinFromLink({ id: gid, board: null, m: v.m, mode: v.mode, from: { pid: null, name: v.name } });
+});
+
 $("btnNewSync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync"); };
+$("btnNew1v1").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync", { auto: true }); };
 $("btnNewAsync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("async"); };
 $("btnLobby").onclick = openLobby;
 $("btnReady").onclick = () => {
@@ -172828,6 +172921,7 @@ $("btnLobbyInvite").onclick = () => pending && shareLink(pending, null, `Cloggle
 $("btnLiveLobby").onclick = toggleLiveCounts; $("btnLiveFriends").onclick = toggleLiveCounts;
 $("btnLobbyLeave").onclick = () => {
   if (pending && pending.online && net.uid) fb.remove(gref(pending.id, `players/${net.uid}`)).catch(() => {});
+  if (pending && pending.online && pending.online.to) fb.remove(fb.ref(net.db, `invites/${pending.online.to}/${pending.id}`)).catch(() => {});
   stopWatching(); $("sheetLobby").classList.remove("open"); setSize(store.get("cloggle.size", 4));
 };
 $("onlineSection").hidden = !onlineEnabled();
