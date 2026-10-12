@@ -172666,7 +172666,12 @@ async function createOnline(mode) {
   try {
     await fb.set(gref(gid, "meta"), meta);
     await fb.update(gref(gid, `players/${net.uid}`), { name, pid: myPid });
-  } catch (e) { $("onlineHint").textContent = "The server refused that (" + (e.code || e.message) + ")."; return; }
+  } catch (e) {
+    $("onlineHint").textContent = /permission/i.test(e.code || e.message)
+      ? "The server refused that (PERMISSION_DENIED). Most likely the database rules haven't been published yet — see README → Online play."
+      : "The server refused that (" + (e.code || e.message) + ").";
+    return;
+  }
   $("onlineHint").textContent = "";
   enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true, online: { gid, mode, host: true } });
   if (mode === "sync") openLobby();
@@ -172705,7 +172710,9 @@ function openLobby() {
   fbInit().then(() => { watchCurrent(pending.id); drawLobby(); }).catch(() => {});
   $("sheetLobby").classList.add("open"); drawLobby();
 }
+function drawLiveLabel() { $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`; }
 function drawLobby() {
+  drawLiveLabel();
   if (!pending || !pending.online || pending.online.mode !== "sync") return;
   const ps = Object.entries(cur.gid === pending.id ? cur.players : {});
   const me = ps.find(([u]) => u === net.uid);
@@ -172713,7 +172720,6 @@ function drawLobby() {
   $("btnReady").textContent = me && me[1].ready ? "Not ready" : "I'm ready";
   $("lobbyHint").textContent = ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
     : "When everyone is ready, all phones count down together. There's no pausing in a live game.";
-  $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`;
 }
 function maybeStart() {   /* the host's phone sets the start time; the server rejects it from anyone else */
   if (!pending || !pending.online || pending.online.mode !== "sync" || !pending.online.host || pending.online.start) return;
