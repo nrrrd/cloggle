@@ -11,6 +11,8 @@ a simple word game for your phone
 | `icon-192.png`, `icon-512.png` | manifest icons (`any maskable`) |
 | `apple-touch-icon.png` | iOS home-screen icon |
 | `vendor/qrcode.min.js` | QR encoder ([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), MIT) |
+| `vendor/firebase.min.js` | Firebase JS SDK (app, auth, database; Apache-2.0), bundled with esbuild; loaded only for online play |
+| `database.rules.json` | security rules for the Realtime Database (paste into the console's Rules tab) |
 | `vendor/jsqr.min.js` | QR decoder ([jsQR](https://github.com/cozmo/jsQR), Apache-2.0, see `vendor/jsqr.LICENSE`); loaded only when scanning |
 
 ## Playing with friends
@@ -39,9 +41,47 @@ shows your result code and scans the other's, so both phones log the full head-t
 Every logged game keeps its board. Tap a row in Stats or Friends to see the board, everyone's
 words, and the words nobody found; tap a word to light up its path.
 
+**Results** (after any round, or tap any logged game) work for any number of players:
+the headline is the share of the board's words each player found (flip to points with the
+toggle), then a side-by-side table — words, points, score with shared words cancelled, best
+word, words only that player found, words in common with you — and every word the board
+holds, highest-scoring first (or A–Z), with a ✓ under each player who found it and ★ where
+only one did. Tap a word to light up its path. **Play this board again** and **Challenge with
+this board** are at the bottom.
+
+**Pause** (❚❚ next to the clock) stops the timer and hides the letters; the app also pauses
+itself when it goes to the background. Paused rounds are marked in results and the leaderboard.
+
+**Stats → Leaderboard** ranks every result on this device (yours and friends') for one
+size/min-length; **Stats → Boards** lists each distinct board with its plays and best result.
+
 On iPhone, links open in Safari rather than the installed home-screen app, and the two have
 separate `localStorage`. Paste the link into **Friends → Open a link** to keep everything in
 the app.
+
+## Online play
+
+Optional, and off until `FIREBASE_CONFIG` near the bottom of `index.html` is filled in with a
+Firebase project's web config (free Spark plan: Anonymous sign-in, a Realtime Database, the
+GitHub Pages host under Authentication → Settings → Authorized domains, and the contents of
+`database.rules.json` pasted into Realtime Database → Rules). Each phone signs in anonymously.
+
+Invites are still the QR code / link (with an extra `o=` flag); the server carries who joined,
+the start time, live word counts, and finished words. Everyone's phone rescores every word.
+
+- **Live game** (Friends → Live game): a lobby with ready buttons. When everyone is ready, the
+  host's phone sets a start time five seconds out and every phone counts down on the server's
+  clock, so the round starts and ends together. No pausing. Others' live word counts are shown
+  unless you hide them (lobby or Friends), a per-person setting.
+- **Play-when-you-can** (Friends → Play-when-you-can game): play any time; you see who has
+  played but not what they got until you've posted your own result. That's enforced by the
+  database rules, not just hidden in the app.
+- Results arrive by themselves and merge into your log; games are followed for a month, and a
+  result posted while offline is retried on the next online launch. If the server can't be
+  reached, an online invite opens as an ordinary offline board.
+
+Local testing: run `firebase emulators:start --only database,auth --project demo-cloggle` with
+this `database.rules.json` and open `index.html?emu`.
 
 ## Offline
 

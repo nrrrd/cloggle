@@ -51,6 +51,7 @@
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }   /* class rules like .after { display: flex } must not beat the attribute */
   html, body { margin: 0; height: 100%; }
   body {
     background: var(--bg); color: var(--ink); font-family: var(--font);
@@ -166,8 +167,44 @@
   .mini.n5 div { font-size: 16px; }
   .mini div.on { background: var(--sel); color: var(--sel-ink); }
   .mini div.on::after { content: attr(data-k); position: absolute; top: 2px; right: 4px; font-size: 10px; font-family: var(--font); }
-  #vsBody .chip { cursor: pointer; }
-  #vsBody .chip.on { color: var(--accent); text-decoration: underline; }
+  .clock { display: flex; align-items: center; gap: 8px; }
+  .live { text-align: center; margin-top: -6px; }
+  #lobbyPlayers .row span:last-child { font-weight: 400; }
+  .pausebtn { padding: 6px 11px; font-size: 13px; border-radius: 999px; letter-spacing: -.1em; }
+  .board.paused .tile { color: transparent; }
+  .board.paused::after { content: "Paused"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                         font-size: 28px; font-weight: 700; color: var(--ink); pointer-events: none; }
+  .seg { display: inline-flex; background: var(--panel); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg button { font-size: 13px; padding: 5px 10px; border-radius: 999px; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+  .gamehead { position: sticky; top: -18px; z-index: 1; background: var(--bg); padding: 4px 0 2px; margin: 0 -2px; }
+  .gamehead .mini { max-width: 150px; }
+  .gamehead .mini div { font-size: 17px; }
+  .gamehead .mini.n5 div { font-size: 13px; }
+  .cmp { overflow-x: auto; margin-top: 6px; }
+  .cmp table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  .cmp th, .cmp td { padding: 6px 5px; text-align: right; border-bottom: 1px solid var(--tile-edge); white-space: nowrap; vertical-align: top; }
+  .cmp th:first-child, .cmp td:first-child { text-align: left; color: var(--muted); font-weight: 400; font-size: 14px; }
+  .cmp thead th { font-size: 15px; color: var(--ink); max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+  .cmp .big { font-size: 22px; font-weight: 700; }
+  .cmp td.lead .big { color: var(--accent); }
+  .cmp small { color: var(--muted); display: block; font-size: 12px; }
+  .wl { display: grid; grid-template-columns: 1fr 2.2em repeat(var(--p), 3em); align-items: center; padding: 5px 2px;
+        border-bottom: 1px solid var(--tile-edge); cursor: pointer; font-variant-numeric: tabular-nums; }
+  .wl > span:not(:first-child) { text-align: center; }
+  .wl.head { color: var(--muted); font-size: 12px; cursor: default; }
+  .wl.head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wl.none { color: var(--muted); }
+  .wl .pts { color: var(--muted); font-size: 13px; }
+  .wl .y { color: var(--good); font-weight: 700; }
+  .wl .y.solo { color: var(--accent); }
+  .wl.on { background: var(--panel); }
+  .lb { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 2px 8px; align-items: baseline; padding: 7px 2px;
+        border-bottom: 1px solid var(--tile-edge); cursor: pointer; }
+  .lb .rk { color: var(--muted); font-size: 13px; }
+  .lb .m { font-weight: 700; font-size: 18px; font-variant-numeric: tabular-nums; text-align: right; }
+  .lb small { grid-column: 2 / 4; color: var(--muted); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -186,10 +223,11 @@
   </header>
 
   <div class="status">
-    <div class="timer" id="timer">3:00</div>
+    <div class="clock"><div class="timer" id="timer">3:00</div><button class="ghost pausebtn" id="btnPause" hidden aria-label="Pause">❚❚</button></div>
     <div class="score">score <b id="score">0</b></div>
     <button class="primary" id="btnStart">Shake</button>
   </div>
+  <div class="hint live" id="liveCounts" hidden></div>
 
   <div class="board" id="board">
     <div class="grid idle" id="grid"></div>
@@ -208,7 +246,7 @@
 
   <div class="invite" id="invite" hidden>
     <p id="inviteText"></p>
-    <div class="actions"><button class="ghost" id="btnResend">Resend link</button><button class="ghost" id="btnDecline">Play my own board</button></div>
+    <div class="actions"><button class="ghost" id="btnLobby" hidden>Open lobby</button><button class="ghost" id="btnResend">Resend link</button><button class="ghost" id="btnDecline">Play my own board</button></div>
   </div>
 
   <div class="found">
@@ -219,7 +257,7 @@
   <div class="after" id="afterRound" hidden>
     <button class="primary" id="btnChallenge">Challenge a friend</button>
     <button class="ghost" id="btnScan">Scan</button>
-    <button class="ghost" id="btnVs" hidden>Head to head</button>
+    <button class="ghost" id="btnVs">Results</button>
   </div>
 </div>
 
@@ -245,6 +283,16 @@
     <button class="ghost" id="btnShareLast">Challenge with my last board</button>
     <button class="ghost" id="btnScanFriends">Scan a code</button>
   </div>
+  <div id="onlineSection" hidden>
+    <h2 style="margin-top:18px">Play online</h2>
+    <p class="hint">Results arrive by themselves — no scanning at the end. Invite people with the QR code or link that comes up.</p>
+    <div class="actions" style="margin-top:0">
+      <button class="ghost" id="btnNewSync">Live game (start together)</button>
+      <button class="ghost" id="btnNewAsync">Play-when-you-can game</button>
+      <button class="ghost" id="btnLiveFriends"></button>
+    </div>
+    <p class="hint" id="onlineHint"></p>
+  </div>
   <h2 style="margin-top:18px">Open a link</h2>
   <div class="actions" style="margin-top:0">
     <input class="plain" id="linkInput" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="paste a Cloggle link">
@@ -254,6 +302,18 @@
   <h2 style="margin-top:18px">Head to head</h2>
   <div id="friendsBody"></div>
   <div class="actions"><button class="ghost" data-close>Done</button></div>
+</div></div>
+
+<div class="sheet" id="sheetLobby"><div>
+  <h2>Live game</h2>
+  <p class="hint" id="lobbyHint"></p>
+  <div id="lobbyPlayers"></div>
+  <div class="actions">
+    <button class="primary" id="btnReady">I'm ready</button>
+    <button class="ghost" id="btnLobbyInvite">Invite (QR / link)</button>
+    <button class="ghost" id="btnLiveLobby"></button>
+    <button class="ghost" id="btnLobbyLeave">Leave game</button>
+  </div>
 </div></div>
 
 <div class="sheet" id="sheetQr"><div>
@@ -271,13 +331,18 @@
 </div></div>
 
 <div class="sheet" id="sheetVs"><div>
-  <h2 id="vsTitle">Head to head</h2>
+  <h2 id="vsTitle">Results</h2>
   <div id="vsBody"></div>
-  <div class="actions"><button class="ghost" data-close>Done</button></div>
+  <div class="actions">
+    <button class="ghost" id="btnReplay">Play this board again</button>
+    <button class="ghost" id="btnRechallenge">Challenge with this board</button>
+    <button class="ghost" data-close>Done</button>
+  </div>
 </div></div>
 
 <div class="sheet" id="sheetStats"><div>
   <h2>Stats</h2>
+  <div class="controls" id="statsTabs"></div>
   <div id="statsBody"></div>
   <div class="actions">
     <button class="ghost" id="btnExport">Copy stats as JSON</button>
@@ -171936,16 +172001,37 @@ function startRound() {
   const pc = pending; setPending(null);
   if (pc) { N = pc.size; drawSizeButtons(); letters = decodeBoard(pc.board); roundMinLen = pc.m; }
   else { newBoard(); roundMinLen = null; }
-  round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc };
+  round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc,
+            replayOf: pc && pc.replayOf, pauses: 0, online: pc && pc.online || null };
   $("afterRound").hidden = true;
   renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
   $("foundTitle").textContent = "Found words"; setStartLabel("End", false); drawMinLen(); $("input").value = ""; $("input").disabled = false;
   setTrace("", "", `${solution.size} words hidden · min ${minLen()} letters`);
-  clearInterval(tick); drawTimer();
-  tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000);
+  clearPause();
+  if (isSync()) { $("btnPause").hidden = true; startSyncTick(round.online.start); }   /* everyone shares one clock: no pausing */
+  else { $("btnPause").hidden = false; drawTimer(); startTick(); }
+  drawLive();
 }
+/* Pause hides the board (so it can't be studied for free) and stops the clock.
+   The app also pauses itself when it's backgrounded: a phone call shouldn't cost the round. */
+let paused = false;
+function startTick() { clearInterval(tick); tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000); }
+function pauseRound() {
+  if (!running || paused || isSync()) return;
+  paused = true; clearInterval(tick); dragging = false; sel = []; drawSel(); round.pauses = (round.pauses || 0) + 1;
+  $("board").classList.add("paused"); $("input").disabled = true; $("btnPause").textContent = "▶"; $("btnPause").setAttribute("aria-label", "Resume");
+  setTrace("", "", "Paused — the board is hidden until you resume.");
+}
+function resumeRound() {
+  if (!running || !paused) return;
+  paused = false; $("board").classList.remove("paused"); $("input").disabled = false;
+  $("btnPause").textContent = "❚❚"; $("btnPause").setAttribute("aria-label", "Pause"); setTrace("", "", ""); startTick();
+}
+function clearPause() { paused = false; $("board").classList.remove("paused"); $("btnPause").textContent = "❚❚"; $("btnPause").setAttribute("aria-label", "Pause"); }
+$("btnPause").onclick = () => paused ? resumeRound() : pauseRound();
+document.addEventListener("visibilitychange", () => { if (document.hidden) pauseRound(); });
 function drawTimer() {
   const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
   const el = $("timer"); el.textContent = `${m}:${String(s).padStart(2, "0")}`; el.classList.toggle("low", timeLeft <= 15 && running);
@@ -171954,7 +172040,7 @@ function endRound() {
   if (!running) return;
   cancelEndConfirm(); startLock = Date.now() + 1500;   /* don't let the confirming tap shake a fresh board */
   $("btnStart").disabled = true; setTimeout(() => { $("btnStart").disabled = false; }, 1500);
-  running = false; clearInterval(tick); sel = []; drawSel(); $("grid").classList.add("idle");
+  running = false; clearInterval(tick); clearPause(); $("btnPause").hidden = true; sel = []; drawSel(); $("grid").classList.add("idle");
   setStartLabel("Shake", false); $("input").disabled = true; drawMinLen(); $("timer").classList.remove("low"); sfx.over(); buzz(3);
   const possible = [...solution.values()].reduce((a, b) => a + b, 0);
   const missed = [...solution.keys()].filter(w => !found.has(w)).sort((a, b) => b.length - a.length || a.localeCompare(b));
@@ -171965,26 +172051,31 @@ function endRound() {
   const entry = { date: new Date().toISOString(), size: N, theme: document.documentElement.dataset.theme,
                   score, possible, found: found.size, possibleWords: solution.size, minLen: minLen(), longest, words: [...found.keys()],
                   id: round.id, board: round.board, opponents: round.opps.map(o => scoreOpp(o, solution, round.m)) };
+  if (round.replayOf) entry.replayOf = round.replayOf;
+  if (round.pauses) entry.pauses = round.pauses;
+  if (round.online) entry.online = { gid: round.online.gid, mode: round.online.mode };
   /* accidental starts with nothing scored don't count toward stats, unless it was a friend's board */
   const keep = score > 0 || round.shared;
   if (keep) logGame(entry);
+  if (entry.online) submitOnline(entry);
   lastRound = { entry, logged: keep };
   roundMinLen = null; drawMinLen();
   $("btnChallenge").textContent = entry.opponents.length ? "Send my result" : "Challenge a friend";
-  $("btnVs").hidden = !entry.opponents.length; $("afterRound").hidden = false;
+  $("afterRound").hidden = false;
   setTrace("", "", pending ? "Round over. Shake to play the board you were sent." : "Round over. Shake for a new board.");
   drawInvite();
-  if (entry.opponents.length) showVs(entry);
+  if (entry.opponents.length || entry.online) showGame(entry);
+  drawLive();
 }
 
 /* ---------- word entry ---------- */
 function submitWord(raw) {
   const w = raw.toLowerCase().replace(/[^a-z]/g, "");
-  if (!running || !w) return;
+  if (!running || paused || !w) return;
   if (w.length < minLen()) { sfx.bad(); return setTrace(w, "bad", `${minLen()}+ letters`); }
   if (found.has(w)) { sfx.bad(); return setTrace(w, "bad", "already found"); }
   if (!solution.has(w)) { sfx.bad(); buzz(1); return setTrace(w, "bad", DICT.has(w) ? "not on this board" : "not a word"); }
-  const p = points(w); found.set(w, p); score += p; $("score").textContent = score;
+  const p = points(w); found.set(w, p); score += p; $("score").textContent = score; if (isSync()) pushLiveCount();
   const c = document.createElement("span"); c.className = "chip"; c.innerHTML = `${w} <small>${p}</small>`; $("chips").prepend(c);
   setTrace(w, "good", `+${p}`); sfx.good(p); buzz(p >= 3 ? 2 : 1);
 }
@@ -172008,7 +172099,7 @@ function drawSel() {
 }
 const board = $("board");
 board.addEventListener("pointerdown", e => {
-  if (!running) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
+  if (!running || paused) return; const i = tileAt(e.clientX, e.clientY); if (i < 0) return;
   dragging = true; sel = [i]; drawSel(); sfx.tick(1); buzz(1); board.setPointerCapture(e.pointerId); e.preventDefault();
 });
 board.addEventListener("pointermove", e => {
@@ -172023,6 +172114,7 @@ board.addEventListener("pointerup", finish); board.addEventListener("pointercanc
 
 $("input").addEventListener("keydown", e => { if (e.key === "Enter") { submitWord(e.target.value); e.target.value = ""; } });
 $("btnStart").addEventListener("click", () => {
+  if (!running && pending && pending.online && pending.online.mode === "sync") { openLobby(); return; }   /* a live game starts itself */
   if (!running) { if (Date.now() < startLock) return; startRound(); return; }
   if (!endConfirm) {   /* first tap only arms the button, so a stray tap can't kill a round */
     setStartLabel("End?", true); sfx.bad();
@@ -172035,7 +172127,7 @@ $("btnStart").addEventListener("click", () => {
 /* ---------- size ---------- */
 function setSize(n) {
   if (running) endRound();
-  if (pending) setPending(null);   /* picking a size means you're not playing the board you were sent */
+  if (pending) { if (pending.online && typeof stopWatching === "function") stopWatching(); setPending(null); }   /* picking a size means you're not playing the board you were sent */
   N = n; drawSizeButtons();
   newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n); drawMinLen();
 }
@@ -172075,6 +172167,10 @@ $("btnThemeShuffle").onclick = e => { shuffleTheme = !shuffleTheme; store.set("c
 function logGame(g) { const games = store.get("cloggle.games", []); games.push(g); if (!store.set("cloggle.games", games)) console.warn("stats not saved (storage unavailable)"); }
 const gameMinLen = g => g.minLen || MINLEN_DEFAULT[g.size] || 3;   /* rounds logged before the toggle used the per-size default */
 function renderStats() {
+  $("statsTabs").innerHTML = seg("tab", statsTab, [["summary", "Summary"], ["leaders", "Leaderboard"], ["boards", "Boards"]]);
+  $("statsLog").hidden = statsTab !== "summary";
+  if (statsTab === "leaders") return renderLeaders();
+  if (statsTab === "boards") return renderBoards();
   const games = store.get("cloggle.games", []);
   const body = $("statsBody"), log = $("statsLog");
   if (!games.length) { body.innerHTML = `<p class="hint">No rounds logged yet. Stats save on this device.</p>`; log.innerHTML = ""; return; }
@@ -172094,8 +172190,42 @@ function renderStats() {
   log.innerHTML = games.slice(-15).reverse().map(g =>
     `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size} ${gameMinLen(g)}+${vsLabel(g)}</span><b>${g.score}</b><span>${g.found}/${g.possibleWords}</span><span>${g.longest || ""}</span></div>`).join("");
 }
+/* Every result on this device (yours and friends'), best first. Only boards
+   with the same size and min length are comparable, so pick one of those. */
+function renderLeaders() {
+  const games = store.get("cloggle.games", []).filter(g => g.possibleWords && g.words);
+  if (!games.length) { $("statsBody").innerHTML = `<p class="hint">No rounds logged yet.</p>`; return; }
+  const key = g => `${g.size}-${gameMinLen(g)}`, keys = [...new Set(games.map(key))].sort();
+  if (!keys.includes(statsCombo)) statsCombo = key(games[games.length - 1]);
+  const me = store.get("cloggle.name", "") || "You";
+  const rows = games.filter(g => key(g) === statsCombo).flatMap(g => playersOf(g).map(p => ({ p, g })))
+    .sort((a, b) => metricOf(b.p, b.g) - metricOf(a.p, a.g) || b.p.score - a.p.score).slice(0, 50);
+  $("statsBody").innerHTML =
+    `<div class="controls">${seg("combo", statsCombo, keys.map(k => { const [n, m] = k.split("-"); return [k, `${n}×${n} · ${m}+`]; }))}${metricSeg()}</div>` +
+    rows.map(({ p, g }, i) => `<div class="lb vs" data-id="${esc(g.id)}"><span class="rk">${i + 1}</span><span>${esc(p.me ? me : p.name)}</span>` +
+      `<span class="m">${fmtMetric(p, g)}</span><small>${fmtOther(p, g)} · ${p.n} words · ${shortDate(g.date)}${g.replayOf ? " · replay" : ""}${p.me && g.pauses ? " · paused" : ""}</small></div>`).join("");
+}
+/* One row per distinct board: replay it, or send it to someone. */
+function renderBoards() {
+  const groups = new Map();
+  for (const g of store.get("cloggle.games", [])) if (g.board) {
+    const k = g.board + "|" + gameMinLen(g); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(g);
+  }
+  if (!groups.size) { $("statsBody").innerHTML = `<p class="hint">Boards are saved from now on — play a round and it'll show up here.</p>`; return; }
+  const me = store.get("cloggle.name", "") || "You";
+  $("statsBody").innerHTML = `<div class="controls">${metricSeg()}</div><p class="hint">Tap a board to see every play of it, replay it, or challenge someone with it.</p>` +
+    [...groups.values()].sort((a, b) => b[b.length - 1].date.localeCompare(a[a.length - 1].date)).map(gs => {
+      const last = gs[gs.length - 1]; let best = null;
+      for (const g of gs) for (const p of playersOf(g)) if (!best || metricOf(p, g) > metricOf(best.p, best.g)) best = { p, g };
+      const people = new Set(gs.flatMap(g => playersOf(g).map(p => p.me ? me : p.name)));
+      return `<div class="lb vs" data-id="${esc(last.id)}"><span class="rk">${last.size}×${last.size}</span>` +
+        `<span style="font-family:var(--tile-font);letter-spacing:.08em">${esc(last.board.slice(0, last.size))}…</span>` +
+        `<span class="m">${fmtMetric(best.p, best.g)}</span><small>${gs.length} play${gs.length > 1 ? "s" : ""} · ${[...people].map(esc).join(", ")} · ` +
+        `best ${esc(best.p.me ? me : best.p.name)} · last ${shortDate(last.date)}</small></div>`;
+    }).join("");
+}
 const vsAttr = g => g.board ? ` class="vs" data-id="${esc(g.id)}"` : "";   /* rounds from before boards were saved can't reopen */
-const vsLabel = g => (g.opponents || []).map(o => ` · ${esc(o.name)} ${o.score}`).join("");
+const vsLabel = g => (g.opponents || []).map(o => ` · ${esc(o.name)} ${fmtMetric({ score: o.score, n: o.words.length }, g)}`).join("");
 function row(k, v) { return `<div class="row"><span>${k}</span><span>${v}</span></div>`; }
 $("btnStats").onclick = () => { renderStats(); $("sheetStats").classList.add("open"); };
 $("btnExport").onclick = async e => {
@@ -172128,7 +172258,8 @@ function parseLink(str) {
   if (!/^[a-z0-9]{4,16}$/i.test(id) || !/^([A-Z]{16}|[A-Z]{25})$/.test(b) || (m !== 3 && m !== 4)) return null;
   const pid = q.get("p"), name = (q.get("n") || "").trim().slice(0, 20) || "A friend";
   const words = q.has("w") ? [...new Set(q.get("w").split(".").filter(w => /^[a-z]{3,25}$/.test(w)))] : null;
-  return { id, board: b, size: b.length === 25 ? 5 : 4, m, from: pid ? { pid, name, words } : null };
+  const mode = { s: "sync", a: "async" }[q.get("o")] || null;
+  return { id, board: b, size: b.length === 25 ? 5 : 4, m, mode, from: pid ? { pid, name, words } : null };
 }
 function scoreOpp(o, sol, m) {
   const words = o.words.filter(w => sol.has(w));
@@ -172145,7 +172276,16 @@ function drawInvite() {
   if (!pending || running) { el.hidden = true; return; }
   const p = pending, what = `${p.size}×${p.size} board (${p.m}+ letters)`;
   const scores = p.opps.map(o => `${esc(o.name)} scored <b>${o.score}</b>`).join(", ");
-  $("inviteText").innerHTML = p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
+  $("btnLobby").hidden = !(p.online && p.online.mode === "sync");
+  if (p.online) {
+    const who = p.fromName ? `${esc(p.fromName)}'s` : "Your";
+    $("inviteText").innerHTML = p.online.mode === "sync"
+      ? `${who} live ${what}. It starts on everyone's phone at once when you're all ready.`
+      : `${who} play-when-you-can ${what}. ${esc(onlineStatus(p) || "Shake whenever you like.")}`;
+    $("btnResend").hidden = false; el.hidden = false; return;
+  }
+  $("inviteText").innerHTML = p.replayOf ? `Replaying a ${what} from ${shortDate(p.replayDate)}. Best on it so far: ${esc(p.replayBest)}. Shake when you're ready.`
+    : p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
     : p.fromName ? `${esc(p.fromName)} sent you a ${what}. Shake when you're both ready.`
     : `Your shared ${what} is ready. Shake when you're both ready.`;
   $("btnResend").hidden = !p.mine;
@@ -172155,6 +172295,7 @@ function drawInvite() {
 /* Open a link (from the address bar or pasted in). Returns false if it isn't one. */
 function receiveLink(str) {
   const c = parseLink(str); if (!c) return false;
+  if (c.mode && onlineEnabled()) { joinFromLink(c); return true; }   /* falls back to the offline path if the server can't be reached */
   const from = c.from && c.from.pid !== myPid ? c.from : null;   /* your own link carries nothing new */
   const games = store.get("cloggle.games", []), g = games.find(x => x.id === c.id);
   if (g) {   /* already played it: this is a result coming back */
@@ -172165,7 +172306,7 @@ function receiveLink(str) {
       store.set("cloggle.games", games);
       if (lastRound && lastRound.entry.id === g.id) lastRound.entry = g;
     }
-    showVs(g); return true;
+    showGame(g); return true;
   }
   if (running && round.id === c.id) {   /* a result for the board you're on right now: scored when the round ends */
     if (from && from.words) upsertOpp(round.opps, from);
@@ -172198,9 +172339,10 @@ async function shareLink(p, words, text) {
   const name = myName(); if (name === null) return;
   const q = new URLSearchParams({ g: p.id, b: p.board, m: p.m, p: myPid, n: name });
   if (words) q.set("w", words.join("."));
+  if (p.online) q.set("o", p.online.mode[0]);
   const url = location.href.split("#")[0] + "#" + q;
   outgoing = { text, url };
-  $("qrTitle").textContent = words ? "Your result" : "Scan to play this board";
+  $("qrTitle").textContent = words ? "Your result" : p.online ? "Scan to join" : "Scan to play this board";
   $("qrHint").textContent = words
     ? "Your friend taps Scan in Cloggle and points it here. Scan theirs too, so you both get the comparison."
     : "Your friend taps Friends → Scan a code in Cloggle and points it here. Shake together once it loads.";
@@ -172289,37 +172431,90 @@ function newSharedBoard() {
   shareLink(p, null, `Cloggle: here's a ${N}×${N} board for us both. Shake when we're both ready.`);
 }
 
-function showVs(g) {
-  const m = gameMinLen(g), opps = g.opponents || [];
-  const players = [{ name: "You", words: new Set(g.words), score: g.score }, ...opps.map(o => ({ name: o.name, words: new Set(o.words), score: o.score }))];
-  const who = new Map();   /* word -> indices of players who found it */
-  players.forEach((p, i) => p.words.forEach(w => { if (!who.has(w)) who.set(w, []); who.get(w).push(i); }));
-  /* classic Boggle rule: a word anyone else also found scores for nobody */
-  players.forEach(p => p.unique = [...p.words].filter(w => who.get(w).length === 1).reduce((a, w) => a + points(w, m), 0));
-  const ranked = players.slice().sort((a, b) => b.score - a.score);
-  const byLen = (a, b) => b.length - a.length || a.localeCompare(b);
-  const names = ix => ix.filter(i => i).map(i => esc(players[i].name)).join(", ");
-  const chips = (ws, tag) => ws.length ? ws.sort(byLen).map(w => `<span class="chip">${w}${tag ? ` <small>${tag(w)}</small>` : ""}</span>`).join("") : `<span class="empty">none</span>`;
-  const mine = [...who].filter(([, ix]) => ix[0] === 0).map(([w]) => w);
-  const solo = mine.filter(w => who.get(w).length === 1), shared = mine.filter(w => who.get(w).length > 1);
-  const theirs = [...who].filter(([, ix]) => ix[0] !== 0).map(([w]) => w);
-  const one = opps.length === 1, ls = g.board ? decodeBoard(g.board) : null;
-  const nobody = ls ? [...solveBoard(ls, g.size, m).keys()].filter(w => !who.has(w)) : [];
-  $("vsTitle").textContent = opps.length ? "Head to head" : "Game";
-  $("vsBody").innerHTML =
-    `<p class="hint">${g.size}×${g.size} · ${m}+ letters · ${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>` +
-    (ls ? `<div class="mini n${g.size}" style="grid-template-columns:repeat(${g.size},1fr)">${ls.map(L => `<div>${L === "QU" ? "Qu" : L}</div>`).join("")}</div><p class="hint" style="text-align:center">Tap a word to see it on the board.</p>` : "") +
-    (opps.length
-      ? `<div class="row hint"><span>player</span><span>score · shared words cancelled</span></div>` +
-        ranked.map(p => `<div class="row"><span>${esc(p.name)} <small class="hint">${p.words.size} words</small></span><span>${p.score} · ${p.unique}</span></div>`).join("") +
-        `<h3>Only you (${solo.length})</h3><div class="chips">${chips(solo)}</div>` +
-        `<h3>${one ? "Only " + esc(opps[0].name) : "You missed"} (${theirs.length})</h3><div class="chips">${chips(theirs, one ? null : w => names(who.get(w)))}</div>` +
-        `<h3>${one ? "Both" : "Shared"} (${shared.length})</h3><div class="chips">${chips(shared, one ? null : w => names(who.get(w)))}</div>`
-      : row("Score", `${g.score} of ${g.possible}`) + `<h3>Your words (${solo.length})</h3><div class="chips">${chips(solo)}</div>`) +
-    (ls ? `<h3>${opps.length ? "Nobody found" : "Missed"} (${nobody.length})</h3><div class="chips">${chips(nobody).replace(/class="chip"/g, 'class="chip missed"')}</div>` : "");
-  $("vsBody").dataset.board = g.board || ""; $("vsBody").dataset.size = g.size;
-  $("sheetVs").classList.add("open");
+/* ---------- results: one sheet for any number of players ----------
+   The headline number is the share of the board's words each player found
+   (or points, if you flip the toggle); below it is a side-by-side table and
+   every word the board holds, with a mark under each player who found it. */
+let metric = store.get("cloggle.metric", "pct"), wordSort = store.get("cloggle.wordsort", "score");
+let shownGame = null, statsTab = "summary", statsCombo = null;
+const shortDate = d => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const pct = (n, g) => g.possibleWords ? 100 * n / g.possibleWords : 0;
+const fmtPct = v => (v >= 10 || v === 0 ? v.toFixed(0) : v.toFixed(1)) + "%";
+const metricOf = (p, g) => metric === "pct" ? pct(p.n, g) : p.score;
+const fmtMetric = (p, g) => metric === "pct" ? fmtPct(pct(p.n, g)) : String(p.score);
+const fmtOther = (p, g) => metric === "pct" ? `${p.score} pts` : fmtPct(pct(p.n, g));
+const seg = (key, cur, opts) => `<div class="seg" data-seg="${key}">${opts.map(([v, label]) => `<button data-v="${v}" aria-pressed="${v === cur}">${label}</button>`).join("")}</div>`;
+const metricSeg = () => seg("metric", metric, [["pct", "% of words"], ["pts", "points"]]);
+function playersOf(g) {
+  return [{ name: "You", words: g.words, score: g.score, me: true },
+          ...(g.opponents || []).map(o => ({ name: o.name, words: o.words, score: o.score }))]
+    .map(p => ({ ...p, set: new Set(p.words), n: p.words.length }));
 }
+const sameBoard = g => store.get("cloggle.games", []).filter(x => x.board && x.board === g.board && gameMinLen(x) === gameMinLen(g));
+
+function showGame(g) {
+  const keepScroll = shownGame && shownGame.id === g.id && $("sheetVs").classList.contains("open");
+  const scroller = $("sheetVs").firstElementChild, top = scroller.scrollTop;
+  shownGame = g;
+  const m = gameMinLen(g), ps = playersOf(g), ls = g.board ? decodeBoard(g.board) : null, multi = ps.length > 1;
+  const all = ls ? solveBoard(ls, g.size, m) : new Map(ps.flatMap(p => p.words).map(w => [w, points(w, m)]));
+  ps.forEach(p => p.words.forEach(w => all.has(w) || all.set(w, points(w, m))));
+  const count = w => ps.reduce((a, p) => a + p.set.has(w), 0);
+  const byScore = (a, b) => all.get(b) - all.get(a) || b.length - a.length || a.localeCompare(b);
+  ps.forEach(p => {
+    p.unique = p.words.filter(w => count(w) === 1);
+    p.uniquePts = p.unique.reduce((a, w) => a + points(w, m), 0);   /* classic Boggle: shared words score for nobody */
+    p.best = p.words.slice().sort(byScore)[0];
+    p.common = p.me ? null : p.words.filter(w => ps[0].set.has(w)).length;
+  });
+  const lead = Math.max(...ps.map(p => metricOf(p, g)));
+  const tr = (label, f, lead) => `<tr><td>${label}</td>${ps.map(p => `<td${lead && multi && metricOf(p, g) === lead ? ' class="lead"' : ""}>${f(p)}</td>`).join("")}</tr>`;
+  const words = [...all.keys()].sort(wordSort === "az" ? (a, b) => a.localeCompare(b) : byScore);
+  const attempts = sameBoard(g);
+  $("vsTitle").textContent = multi ? "Head to head" : "Results";
+  $("vsBody").innerHTML =
+    `<p class="hint">${g.size}×${g.size} · ${m}+ letters · ${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` +
+      `${g.replayOf ? " · replay" : ""}${g.pauses ? ` · paused ${g.pauses}×` : ""}</p>` +
+    `<div class="gamehead">` +
+      (ls ? `<div class="mini n${g.size}" style="grid-template-columns:repeat(${g.size},1fr)">${ls.map(L => `<div>${L === "QU" ? "Qu" : L}</div>`).join("")}</div>` : "") +
+      `<div class="controls">${metricSeg()}${seg("sort", wordSort, [["score", "by score"], ["az", "A–Z"]])}</div>` +
+    `</div>` +
+    `<div class="cmp"><table><thead><tr><th></th>${ps.map(p => `<th>${esc(p.name)}</th>`).join("")}</tr></thead><tbody>` +
+      tr(metric === "pct" ? "Found" : "Score", p => `<span class="big">${fmtMetric(p, g)}</span><small>${fmtOther(p, g)}</small>`, lead) +
+      tr("Words", p => `${p.n}<small>of ${g.possibleWords || all.size}</small>`) +
+      tr("Points", p => `${p.score}<small>of ${g.possible ?? "?"}</small>`) +
+      (multi ? tr("Shared cancel", p => p.uniquePts) : "") +
+      tr("Best word", p => p.best ? `${p.best}<small>${all.get(p.best)} pts</small>` : "—") +
+      (multi ? tr("Only them", p => p.unique.length) + tr("In common", p => p.me ? "—" : p.common) : "") +
+    `</tbody></table></div>` +
+    `<h3>All words (${all.size})</h3>` +
+    `<p class="hint">${multi ? "✓ found it · ★ only one who did · " : ""}tap a word to see it on the board</p>` +
+    `<div class="wl head" style="--p:${ps.length}"><span>word</span><span>pts</span>${ps.map(p => `<span>${esc(p.name)}</span>`).join("")}</div>` +
+    words.map(w => { const c = count(w);
+      return `<div class="wl${c ? "" : " none"}" style="--p:${ps.length}" data-w="${w}"><span>${w}</span><span class="pts">${all.get(w)}</span>` +
+        ps.map(p => p.set.has(w) ? `<span class="y${multi && c === 1 ? " solo" : ""}">${multi && c === 1 ? "★" : "✓"}</span>` : `<span>·</span>`).join("") + `</div>`; }).join("") +
+    (attempts.length > 1 ? `<h3>Every play of this board (${attempts.length})</h3><div class="log">` + attempts.slice().reverse().map(x =>
+      `<div class="vs" data-id="${esc(x.id)}"><span>${shortDate(x.date)}${x.id === g.id ? " (this one)" : ""}${vsLabel(x)}</span><b>${fmtMetric({ score: x.score, n: x.found }, x)}</b><span></span><span>›</span></div>`).join("") + `</div>` : "");
+  const waiting = g.online && waitingFor.get(g.online.gid);
+  if (waiting && waiting.length) $("vsBody").insertAdjacentHTML("afterbegin", `<p class="hint">Still playing: ${waiting.map(esc).join(", ")}. Their results will appear here.</p>`);
+  $("vsBody").dataset.board = g.board || ""; $("vsBody").dataset.size = g.size;
+  $("btnReplay").hidden = $("btnRechallenge").hidden = !g.board;
+  $("btnReplay").disabled = running;
+  $("sheetVs").classList.add("open");
+  scroller.scrollTop = keepScroll ? top : 0;
+}
+function replayBoard(g) {
+  if (running || !g.board) return;
+  const attempts = sameBoard(g), first = attempts[0] || g;
+  let best = null;
+  for (const x of attempts) for (const p of playersOf(x)) { const v = metricOf(p, x); if (!best || v > best.v) best = { v, label: `${p.me ? "you" : p.name}, ${fmtMetric(p, x)}` }; }
+  setPending({ id: randId(), board: g.board, size: g.size, m: gameMinLen(g), opps: [], replayOf: first.replayOf || first.id,
+               replayDate: first.date, replayBest: best ? best.label : "—" });
+  document.querySelectorAll(".sheet.open").forEach(s => s.classList.remove("open"));
+  showPendingBoard(); $("chips").innerHTML = ""; $("afterRound").hidden = true; setTrace("", "", "Board loaded.");
+}
+$("btnReplay").onclick = () => shownGame && replayBoard(shownGame);
+$("btnRechallenge").onclick = () => shownGame && shareRound({ entry: shownGame, logged: true });
 function wordPath(ls, n, w) {   /* tile indices spelling w on the board, or null */
   const at = (k, i, used) => {
     const L = ls[i].toLowerCase(); if (!w.startsWith(L, k)) return null;
@@ -172331,12 +172526,10 @@ function wordPath(ls, n, w) {   /* tile indices spelling w on the board, or null
   return null;
 }
 $("vsBody").addEventListener("click", e => {
-  const chip = e.target.closest(".chip"), body = $("vsBody"), mini = body.querySelector(".mini"); if (!chip || !mini) return;
-  const w = chip.firstChild.textContent.trim(), n = +body.dataset.size;
-  const path = wordPath(decodeBoard(body.dataset.board), n, w) || [];
-  body.querySelectorAll(".chip.on").forEach(c => c.classList.remove("on")); chip.classList.add("on");
+  const r = e.target.closest(".wl[data-w]"), body = $("vsBody"), mini = body.querySelector(".mini"); if (!r || !mini) return;
+  const path = wordPath(decodeBoard(body.dataset.board), +body.dataset.size, r.dataset.w) || [];
+  body.querySelectorAll(".wl.on").forEach(c => c.classList.remove("on")); r.classList.add("on");
   [...mini.children].forEach((t, i) => { const k = path.indexOf(i); t.classList.toggle("on", k >= 0); t.dataset.k = k >= 0 ? k + 1 : ""; });
-  mini.scrollIntoView({ block: "nearest", behavior: "smooth" });
 });
 
 function renderFriends() {
@@ -172348,16 +172541,18 @@ function renderFriends() {
   const rec = new Map();
   for (const g of games) for (const o of g.opponents) {
     const r = rec.get(o.pid) || { name: o.name, n: 0, w: 0, l: 0, t: 0, me: 0, them: 0 };
-    r.name = o.name; r.n++; r.me += g.score; r.them += o.score;
-    g.score > o.score ? r.w++ : g.score < o.score ? r.l++ : r.t++;
+    const a = metricOf({ score: g.score, n: g.found }, g), b = metricOf({ score: o.score, n: o.words.length }, g);
+    r.name = o.name; r.n++; r.me += a; r.them += b;
+    a > b ? r.w++ : a < b ? r.l++ : r.t++;
     rec.set(o.pid, r);
   }
   $("friendsBody").innerHTML =
+    `<div class="controls">${metricSeg()}</div>` +
     `<div class="row hint"><span>vs</span><span>won–lost–tied · avg you/them</span></div>` +
-    [...rec.values()].sort((a, b) => b.n - a.n).map(r =>
-      row(esc(r.name), `${r.w}–${r.l}–${r.t} · ${(r.me / r.n).toFixed(0)}/${(r.them / r.n).toFixed(0)}`)).join("") +
+    [...rec.values()].sort((a, b) => b.n - a.n).map(r => { const f = v => metric === "pct" ? fmtPct(v) : v.toFixed(0);
+      return row(esc(r.name), `${r.w}–${r.l}–${r.t} · ${f(r.me / r.n)}/${f(r.them / r.n)}`); }).join("") +
     `<div class="log">` + games.slice(-10).reverse().map(g =>
-      `<div${vsAttr(g)}><span>${new Date(g.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${g.size}×${g.size}${vsLabel(g)}</span><b>${g.score}</b><span></span><span>›</span></div>`).join("") + `</div>`;
+      `<div${vsAttr(g)}><span>${shortDate(g.date)} ${g.size}×${g.size}${vsLabel(g)}</span><b>${fmtMetric({ score: g.score, n: g.found }, g)}</b><span></span><span>›</span></div>`).join("") + `</div>`;
 }
 $("btnFriends").onclick = () => { renderFriends(); $("sheetFriends").classList.add("open"); };
 $("nameInput").onchange = e => store.set("cloggle.name", e.target.value.trim().slice(0, 20));
@@ -172372,18 +172567,271 @@ $("btnChallenge").onclick = () => { if (lastRound) shareRound(lastRound); };
 $("btnScan").onclick = startScan; $("btnScanFriends").onclick = startScan;
 $("btnSendLink").onclick = sendOutgoing;
 $("btnScanClose").onclick = () => { stopScan(); $("sheetScan").classList.remove("open"); };
-$("btnVs").onclick = () => { if (lastRound) showVs(lastRound.entry); };
-$("btnResend").onclick = () => { if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
+$("btnVs").onclick = () => { if (lastRound) showGame(lastRound.entry); };
+$("btnResend").onclick = () => { if (pending && pending.online) return shareLink(pending, null, "Cloggle: join my game."); if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
 $("btnDecline").onclick = () => setSize(store.get("cloggle.size", 4));
 document.addEventListener("click", e => {   /* any logged game reopens its board and words */
   const d = e.target.closest(".vs[data-id]"); if (!d) return;
-  const g = store.get("cloggle.games", []).find(x => x.id === d.dataset.id); if (g) { d.closest(".sheet").classList.remove("open"); showVs(g); }
+  const g = store.get("cloggle.games", []).find(x => x.id === d.dataset.id); if (g) { d.closest(".sheet").classList.remove("open"); showGame(g); }
 });
 addEventListener("hashchange", takeHash);
+document.addEventListener("click", e => {
+  const b = e.target.closest(".seg button"); if (!b) return;
+  const k = b.parentElement.dataset.seg, v = b.dataset.v;
+  if (k === "metric") { metric = v; store.set("cloggle.metric", v); }
+  else if (k === "sort") { wordSort = v; store.set("cloggle.wordsort", v); }
+  else if (k === "tab") statsTab = v;
+  else if (k === "combo") statsCombo = v;
+  if ($("sheetVs").classList.contains("open") && shownGame) showGame(shownGame);
+  if ($("sheetStats").classList.contains("open")) renderStats();
+  if ($("sheetFriends").classList.contains("open")) renderFriends();
+});
 
 document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet").classList.remove("open"));
 document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) { s.classList.remove("open"); if (s.id === "sheetScan") stopScan(); } }));
 document.addEventListener("visibilitychange", () => { if (document.hidden && scanStream) { stopScan(); $("sheetScan").classList.remove("open"); } });   /* never leave the camera on */
+
+
+/* ---------- online play (Firebase Realtime Database) ----------
+   Turned on by pasting the project's web config below (see README → Online play).
+   Every online game is still a QR code / link, so inviting works the same way;
+   the server only carries who joined, the shared start time for live games,
+   live word counts, and everyone's words once they've finished. The database
+   rules (database.rules.json) make results unreadable until you've posted your
+   own, and each phone still rescores every word itself. */
+const FIREBASE_CONFIG = {   /* public by design: access is governed by database.rules.json, not by hiding this */
+  apiKey: "AIzaSyB7BLZ6dujUgdBYJn3xLPi2lS63PfCVAys",
+  authDomain: "cloggle.firebaseapp.com",
+  databaseURL: "https://cloggle-default-rtdb.firebaseio.com",
+  projectId: "cloggle",
+  storageBucket: "cloggle.firebasestorage.app",
+  messagingSenderId: "323826466915",
+  appId: "1:323826466915:web:7f5bc9c1a0a3ae3a613856",
+};
+const FB_EMULATOR = /[?&]emu(&|$)/.test(location.search);   /* local testing against `firebase emulators:start` */
+const onlineEnabled = () => !!(FIREBASE_CONFIG || FB_EMULATOR);
+const net = { ready: null, db: null, uid: null, offset: 0 };
+function fbInit() {
+  if (!net.ready) net.ready = (async () => {
+    if (!window.fb) await loadScript("vendor/firebase.min.js");
+    const cfg = FB_EMULATOR ? { apiKey: "demo-key", projectId: "demo-cloggle", databaseURL: "http://127.0.0.1:9000/?ns=demo-cloggle-default-rtdb" } : FIREBASE_CONFIG;
+    const app = fb.initializeApp(cfg), auth = fb.getAuth(app);
+    if (FB_EMULATOR) fb.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    net.db = fb.getDatabase(app);
+    if (FB_EMULATOR) fb.connectDatabaseEmulator(net.db, "127.0.0.1", 9000);
+    net.uid = (await fb.signInAnonymously(auth)).user.uid;
+    fb.onValue(fb.ref(net.db, ".info/serverTimeOffset"), s => { net.offset = s.val() || 0; });
+    return net;
+  })().catch(e => { net.ready = null; console.warn("online play unavailable", e); reportNetworkFailure(); throw e; });
+  return net.ready;
+}
+const serverNow = () => Date.now() + net.offset;
+const gref = (gid, path) => fb.ref(net.db, `games/${gid}/${path}`);
+const isSync = () => !!(round && running && round.online && round.online.mode === "sync");
+let liveCountsOn = store.get("cloggle.livecounts", true);
+const cur = { gid: null, players: {}, meta: null, off: [] };   /* the online game that's pending or being played */
+const waitingFor = new Map();                                  /* gid -> names of joined players with no result yet */
+
+function watchCurrent(gid) {   /* players (and, for live games, the start time) of the game you're about to play */
+  if (cur.gid === gid) return;
+  cur.off.forEach(f => f()); Object.assign(cur, { gid, players: {}, meta: null, off: [] });
+  cur.off.push(fb.onValue(gref(gid, "players"), s => {
+    cur.players = s.val() || {};
+    drawInvite(); drawLobby(); drawLive(); maybeStart();
+  }));
+  if (pending && pending.online && pending.online.mode === "sync")
+    cur.off.push(fb.onValue(gref(gid, "start"), s => {
+      const v = s.val(); if (!v || !pending || pending.id !== gid) return;
+      pending.online.start = v; store.set("cloggle.pending", pending); beginCountdown();
+    }));
+}
+function stopWatching() { cur.off.forEach(f => f()); Object.assign(cur, { gid: null, players: {}, meta: null, off: [] }); }
+function onlineStatus(p) {   /* async: who has finished — never what they got */
+  if (!p.online || cur.gid !== p.id || !net.uid) return "";
+  const others = Object.entries(cur.players).filter(([u]) => u !== net.uid).map(([, v]) => v);
+  if (!others.length) return "Nobody else has joined yet.";
+  const done = others.filter(v => v.done).map(v => v.name), not = others.filter(v => !v.done).map(v => v.name);
+  return (done.length ? `${done.join(" & ")} ${done.length > 1 ? "have" : "has"} played — finish yours to see how they did. ` : "") +
+         (not.length ? `Still to play: ${not.join(", ")}.` : "");
+}
+
+async function createOnline(mode) {
+  if (running) return;
+  const name = myName(); if (name === null) return;
+  $("onlineHint").textContent = "Connecting…";
+  try { await fbInit(); } catch { $("onlineHint").textContent = "Couldn't reach the server. QR codes and links still work offline."; return; }
+  newBoard();
+  const gid = randId() + randId().slice(0, 4);
+  const meta = { board: encodeBoard(letters), size: N, m: minLen(), mode, host: net.uid, created: fb.serverTimestamp() };
+  try {
+    await fb.set(gref(gid, "meta"), meta);
+    await fb.update(gref(gid, `players/${net.uid}`), { name, pid: myPid });
+  } catch (e) { $("onlineHint").textContent = "The server refused that (" + (e.code || e.message) + ")."; return; }
+  $("onlineHint").textContent = "";
+  enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true, online: { gid, mode, host: true } });
+  if (mode === "sync") openLobby();
+  shareLink(pending, null, mode === "sync" ? `Cloggle: join my live ${N}×${N} game.` : `Cloggle: play this ${N}×${N} board when you can — you'll see my score once you've played.`);
+}
+function enterOnline(p) {
+  setPending(p); showPendingBoard(); $("chips").innerHTML = ""; $("foundTitle").textContent = "Found words"; $("afterRound").hidden = true;
+  watchCurrent(p.id); remember(p.id, p.online.mode);
+}
+async function joinFromLink(c) {
+  const offline = () => {   /* server unreachable: still playable as an ordinary shared board (link without the online flag) */
+    receiveLink("#" + new URLSearchParams({ g: c.id, b: c.board, m: c.m, ...(c.from ? { p: c.from.pid, n: c.from.name } : {}) }));
+    setTrace("", "", "Couldn't reach the server — playing it offline. Swap QR codes at the end.");
+  };
+  setTrace("", "", "Joining…");
+  try { await fbInit(); } catch { return offline(); }
+  const played = store.get("cloggle.games", []).find(x => x.id === c.id);
+  if (played) { watchResults(c.id); showGame(played); setTrace("", "", ""); return; }
+  if (running) { setTrace("", "", "Finish this round first, then open the invite again."); return; }
+  let meta;
+  try { meta = (await fb.get(gref(c.id, "meta"))).val(); } catch { return offline(); }
+  if (!meta) return offline();
+  const name = myName(); if (name === null) return;
+  try { await fb.update(gref(c.id, `players/${net.uid}`), { name, pid: myPid }); } catch { return offline(); }
+  const fromMe = c.from && c.from.pid === myPid;
+  enterOnline({ id: c.id, board: meta.board, size: meta.size, m: meta.m, opps: [], fromName: fromMe ? null : c.from && c.from.name,
+                mine: meta.host === net.uid, online: { gid: c.id, mode: meta.mode, host: meta.host === net.uid } });
+  setTrace("", "", "Joined.");
+  if (meta.mode === "sync") openLobby();
+}
+
+/* ---------- live games: lobby, shared countdown, live counts ---------- */
+let countdown = null;
+function openLobby() {
+  if (!pending || !pending.online) return;
+  fbInit().then(() => { watchCurrent(pending.id); drawLobby(); }).catch(() => {});
+  $("sheetLobby").classList.add("open"); drawLobby();
+}
+function drawLobby() {
+  if (!pending || !pending.online || pending.online.mode !== "sync") return;
+  const ps = Object.entries(cur.gid === pending.id ? cur.players : {});
+  const me = ps.find(([u]) => u === net.uid);
+  $("lobbyPlayers").innerHTML = ps.length ? ps.map(([u, v]) => row(esc(v.name) + (u === net.uid ? " (you)" : ""), v.ready ? "✓ ready" : "not ready")).join("") : `<p class="hint">Connecting…</p>`;
+  $("btnReady").textContent = me && me[1].ready ? "Not ready" : "I'm ready";
+  $("lobbyHint").textContent = ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
+    : "When everyone is ready, all phones count down together. There's no pausing in a live game.";
+  $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`;
+}
+function maybeStart() {   /* the host's phone sets the start time; the server rejects it from anyone else */
+  if (!pending || !pending.online || pending.online.mode !== "sync" || !pending.online.host || pending.online.start) return;
+  const ps = Object.values(cur.players);
+  if (ps.length >= 2 && ps.every(v => v.ready)) fb.set(gref(pending.id, "start"), Math.round(serverNow() + 5000)).catch(e => console.warn("start", e));
+}
+function beginCountdown() {
+  if (countdown || running || !pending || !pending.online.start) return;
+  const st = pending.online.start;
+  document.querySelectorAll(".sheet.open").forEach(s => s.classList.remove("open")); stopScan();
+  $("invite").hidden = true; $("score").textContent = "0"; $("btnStart").disabled = true; setStartLabel("Starting", false);
+  const step = () => {
+    const d = st - serverNow();
+    if (d > 0) { $("timer").textContent = String(Math.ceil(d / 1000)); setTrace("", "", "Get ready…"); if (d < 3100 && Math.ceil(d / 1000) !== step.last) { step.last = Math.ceil(d / 1000); sfx.tick(4 - step.last); buzz(1); } return; }
+    clearInterval(countdown); countdown = null; $("btnStart").disabled = false;
+    if (d > -ROUND_SECONDS * 1000) startRound();
+    else { setTrace("", "", "That live game has already finished."); setPending(null); stopWatching(); }
+  };
+  countdown = setInterval(step, 100); step();
+}
+function startSyncTick(start) {
+  clearInterval(tick); timeLeft = -1;
+  const upd = () => {
+    const t = Math.max(0, ROUND_SECONDS - Math.floor((serverNow() - start) / 1000));
+    if (t !== timeLeft) { timeLeft = t; drawTimer(); }
+    if (t <= 0) endRound();
+  };
+  tick = setInterval(upd, 250); upd();
+}
+let liveTimer = null;
+function pushLiveCount() {   /* throttled: at most one write a second */
+  if (liveTimer) return;
+  liveTimer = setTimeout(() => { liveTimer = null; if (round && round.online) fb.update(gref(round.online.gid, `players/${net.uid}`), { n: found.size }).catch(() => {}); }, 1000);
+}
+function drawLive() {
+  const el = $("liveCounts");
+  if (!isSync() || !liveCountsOn || cur.gid !== round.online.gid) { el.hidden = true; return; }
+  const txt = Object.entries(cur.players).filter(([u]) => u !== net.uid).map(([, v]) => `${v.name} ${v.n || 0}`).join(" · ");
+  el.textContent = txt ? `words so far — ${txt}` : ""; el.hidden = !txt;
+}
+function toggleLiveCounts() { liveCountsOn = !liveCountsOn; store.set("cloggle.livecounts", liveCountsOn); drawLobby(); drawLive(); }
+
+/* ---------- results: post yours, collect everyone else's ---------- */
+const remembered = () => store.get("cloggle.online", []);
+function remember(gid, mode, patch) {
+  const list = remembered().filter(x => Date.now() - x.at < 30 * 864e5);   /* follow games for a month */
+  let r = list.find(x => x.gid === gid); if (!r) { r = { gid, mode, at: Date.now() }; list.push(r); }
+  Object.assign(r, patch || {}); store.set("cloggle.online", list.slice(-60));
+}
+async function submitOnline(entry) {
+  const gid = entry.online.gid;
+  remember(gid, entry.online.mode, { words: entry.words, up: false });
+  try {
+    await fbInit();
+    await fb.set(gref(gid, `results/${net.uid}`), { words: entry.words.join("."), at: fb.serverTimestamp() })
+      .catch(async e => { if (!(await fb.get(gref(gid, `results/${net.uid}`)).catch(() => null))) throw e; });   /* already posted from an earlier try */
+    await fb.update(gref(gid, `players/${net.uid}`), { done: true, n: entry.words.length });
+    remember(gid, entry.online.mode, { up: true, words: undefined });
+    watchResults(gid);
+  } catch (e) { console.warn("result not posted yet", e); setTrace("", "", "Your result will be sent next time you open Cloggle online."); }
+  if (cur.gid === gid) stopWatching();
+}
+const watched = new Map(), solCache = new Map();
+function watchResults(gid) {
+  if (watched.has(gid)) return;
+  const st = { players: {}, results: {} }; watched.set(gid, st);
+  const merge = () => {
+    const games = store.get("cloggle.games", []), g = games.find(x => x.id === gid); if (!g || !g.board) return;
+    const m = gameMinLen(g);
+    if (!solCache.has(gid)) solCache.set(gid, solveBoard(decodeBoard(g.board), g.size, m));
+    g.opponents = g.opponents || [];
+    const fresh = [];
+    for (const [u, r] of Object.entries(st.results)) {
+      if (u === net.uid) continue;
+      const pl = st.players[u] || {}, pid = pl.pid || u;
+      const o = scoreOpp({ pid, name: pl.name || "Someone", words: (r.words || "").split(".").filter(w => /^[a-z]{3,25}$/.test(w)) }, solCache.get(gid), m);
+      const old = g.opponents.find(x => x.pid === pid);
+      if (!old || old.words.length !== o.words.length || old.name !== o.name) { upsertOpp(g.opponents, o); if (!old) fresh.push(o.name); }
+    }
+    waitingFor.set(gid, Object.entries(st.players).filter(([u, v]) => u !== net.uid && !st.results[u]).map(([, v]) => v.name));
+    if (fresh.length) {
+      store.set("cloggle.games", games);
+      if (!running) setTrace("", "", `${fresh.join(" & ")} finished — see Results.`);
+    }
+    if (lastRound && lastRound.entry.id === gid) lastRound.entry = g;
+    if ($("sheetVs").classList.contains("open") && shownGame && shownGame.id === gid) showGame(g);
+  };
+  fb.onValue(gref(gid, "players"), s => { st.players = s.val() || {}; merge(); });
+  fb.onValue(gref(gid, "results"), s => { st.results = s.val() || {}; merge(); }, e => console.warn("results", e));
+}
+function resumeOnline() {   /* at launch: re-follow recent games, retry results that didn't make it up */
+  const list = remembered();
+  if (!onlineEnabled() || !online || !(list.length || (pending && pending.online))) return;
+  fbInit().then(() => {
+    const games = store.get("cloggle.games", []);
+    for (const r of list) {
+      const g = games.find(x => x.id === r.gid); if (!g) continue;
+      if (r.up === false) submitOnline(g); else watchResults(r.gid);
+    }
+    if (pending && pending.online) watchCurrent(pending.id);
+  }).catch(() => {});
+}
+
+$("btnNewSync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync"); };
+$("btnNewAsync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("async"); };
+$("btnLobby").onclick = openLobby;
+$("btnReady").onclick = () => {
+  if (!pending || !net.uid) return;
+  const me = cur.players[net.uid]; fb.update(gref(pending.id, `players/${net.uid}`), { ready: !(me && me.ready) }).catch(() => {});
+};
+$("btnLobbyInvite").onclick = () => pending && shareLink(pending, null, `Cloggle: join my live ${pending.size}×${pending.size} game.`);
+$("btnLiveLobby").onclick = toggleLiveCounts; $("btnLiveFriends").onclick = toggleLiveCounts;
+$("btnLobbyLeave").onclick = () => {
+  if (pending && pending.online && net.uid) fb.remove(gref(pending.id, `players/${net.uid}`)).catch(() => {});
+  stopWatching(); $("sheetLobby").classList.remove("open"); setSize(store.get("cloggle.size", 4));
+};
+$("onlineSection").hidden = !onlineEnabled();
+drawLobby();
 
 /* ---------- init ---------- */
 applyTheme(store.get("cloggle.theme", "letterpress"));
@@ -172419,6 +172867,9 @@ window.cloggleNet = { isOnline: () => online, reportNetworkFailure };
 addEventListener("online", () => setOnline(true));
 addEventListener("offline", () => setOnline(false));
 setOnline(navigator.onLine !== false);
+
+resumeOnline();
+addEventListener("online", resumeOnline);
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("sw registration failed", e)));

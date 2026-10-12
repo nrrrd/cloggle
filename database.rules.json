@@ -1,0 +1,40 @@
+{
+  "rules": {
+    "games": {
+      "$gid": {
+        "meta": {
+          ".read": "auth != null",
+          ".write": "auth != null && !data.exists() && newData.child('host').val() === auth.uid",
+          ".validate": "newData.hasChildren(['board', 'size', 'm', 'mode', 'host', 'created']) && newData.child('board').isString() && newData.child('board').val().matches(/^([A-Z]{16}|[A-Z]{25})$/) && (newData.child('size').val() === 4 || newData.child('size').val() === 5) && (newData.child('m').val() === 3 || newData.child('m').val() === 4) && (newData.child('mode').val() === 'sync' || newData.child('mode').val() === 'async') && newData.child('created').val() === now"
+        },
+        "players": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('games/' + $gid + '/meta').exists()",
+            ".validate": "newData.hasChildren(['name', 'pid'])",
+            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20" },
+            "pid": { ".validate": "newData.isString() && newData.val().length <= 16" },
+            "ready": { ".validate": "newData.isBoolean()" },
+            "done": { ".validate": "newData.isBoolean()" },
+            "n": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 2000" },
+            "$other": { ".validate": false }
+          }
+        },
+        "start": {
+          ".read": "auth != null",
+          ".write": "auth != null && !data.exists() && root.child('games/' + $gid + '/meta/host').val() === auth.uid && root.child('games/' + $gid + '/meta/mode').val() === 'sync'",
+          ".validate": "newData.isNumber() && newData.val() > now && newData.val() < now + 30000"
+        },
+        "results": {
+          ".read": "auth != null && data.child(auth.uid).exists()",
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child('games/' + $gid + '/players/' + $uid).exists()",
+            ".validate": "newData.hasChildren(['words', 'at']) && newData.child('words').isString() && newData.child('words').val().length < 12000 && newData.child('at').val() === now",
+            "words": {}, "at": {},
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    }
+  }
+}
