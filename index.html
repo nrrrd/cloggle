@@ -172599,7 +172599,15 @@ document.addEventListener("visibilitychange", () => { if (document.hidden && sca
    live word counts, and everyone's words once they've finished. The database
    rules (database.rules.json) make results unreadable until you've posted your
    own, and each phone still rescores every word itself. */
-const FIREBASE_CONFIG = null;
+const FIREBASE_CONFIG = {   /* public by design: access is governed by database.rules.json, not by hiding this */
+  apiKey: "AIzaSyB7BLZ6dujUgdBYJn3xLPi2lS63PfCVAys",
+  authDomain: "cloggle.firebaseapp.com",
+  databaseURL: "https://cloggle-default-rtdb.firebaseio.com",
+  projectId: "cloggle",
+  storageBucket: "cloggle.firebasestorage.app",
+  messagingSenderId: "323826466915",
+  appId: "1:323826466915:web:7f5bc9c1a0a3ae3a613856",
+};
 const FB_EMULATOR = /[?&]emu(&|$)/.test(location.search);   /* local testing against `firebase emulators:start` */
 const onlineEnabled = () => !!(FIREBASE_CONFIG || FB_EMULATOR);
 const net = { ready: null, db: null, uid: null, offset: 0 };
