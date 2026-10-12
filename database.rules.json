@@ -12,12 +12,24 @@
           "$uid": {
             ".write": "auth != null && auth.uid === $uid && root.child('games/' + $gid + '/meta').exists()",
             ".validate": "newData.hasChildren(['name', 'pid'])",
-            "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20" },
-            "pid": { ".validate": "newData.isString() && newData.val().length <= 16" },
-            "ready": { ".validate": "newData.isBoolean()" },
-            "done": { ".validate": "newData.isBoolean()" },
-            "n": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 2000" },
-            "$other": { ".validate": false }
+            "name": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 20"
+            },
+            "pid": {
+              ".validate": "newData.isString() && newData.val().length <= 16"
+            },
+            "ready": {
+              ".validate": "newData.isBoolean()"
+            },
+            "done": {
+              ".validate": "newData.isBoolean()"
+            },
+            "n": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 2000"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
         },
         "start": {
@@ -30,9 +42,21 @@
           "$uid": {
             ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child('games/' + $gid + '/players/' + $uid).exists()",
             ".validate": "newData.hasChildren(['words', 'at']) && newData.child('words').isString() && newData.child('words').val().length < 12000 && newData.child('at').val() === now",
-            "words": {}, "at": {},
-            "$other": { ".validate": false }
+            "words": {},
+            "at": {},
+            "$other": {
+              ".validate": false
+            }
           }
+        }
+      }
+    },
+    "invites": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$gid": {
+          ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || (auth.uid !== $uid && !data.exists() && newData.child('from').val() === auth.uid && root.child('games/' + $gid + '/meta/host').val() === auth.uid) || (data.child('from').val() === auth.uid && !newData.exists()))",
+          ".validate": "newData.hasChildren(['from', 'name', 'mode', 'at']) && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 20 && (newData.child('mode').val() === 'sync' || newData.child('mode').val() === 'async') && newData.child('at').val() === now"
         }
       }
     }

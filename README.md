@@ -69,11 +69,18 @@ GitHub Pages host under Authentication → Settings → Authorized domains, and 
 Invites are still the QR code / link (with an extra `o=` flag); the server carries who joined,
 the start time, live word counts, and finished words. Everyone's phone rescores every word.
 
-- **Live game** (Friends → Live game): a lobby with ready buttons. When everyone is ready, the
+- **Live game** (Friends → Live group): a lobby with ready buttons. When everyone is ready, the
   host's phone sets a start time five seconds out and every phone counts down on the server's
   clock, so the round starts and ends together. No pausing. Others' live word counts are shown
   unless you hide them (lobby or Friends), a per-person setting.
-- **Play-when-you-can** (Friends → Play-when-you-can game): play any time; you see who has
+- **Live 1-on-1** (Friends → Live 1-on-1): a waiting room with no ready buttons; the countdown
+  starts the moment the second person joins.
+- **No link needed after the first game:** everyone you've played online is listed under
+  Friends → Play online. **Play live** puts you in a waiting room and pops an invite up in their
+  app (Join / No); **Send a board** offers them a play-when-you-can game the same way. Their
+  app has to be open to see it — there are no push notifications. Live invites expire after
+  15 minutes, play-when-you-can invites after a week.
+- **Play-when-you-can** (Friends → Play-when-you-can): play any time; you see who has
   played but not what they got until you've posted your own result. That's enforced by the
   database rules, not just hidden in the app.
 - Results arrive by themselves and merge into your log; games are followed for a month, and a
