@@ -168,6 +168,8 @@
   .mini div.on { background: var(--sel); color: var(--sel-ink); }
   .mini div.on::after { content: attr(data-k); position: absolute; top: 2px; right: 4px; font-size: 10px; font-family: var(--font); }
   .clock { display: flex; align-items: center; gap: 8px; }
+  .live { text-align: center; margin-top: -6px; }
+  #lobbyPlayers .row span:last-child { font-weight: 400; }
   .pausebtn { padding: 6px 11px; font-size: 13px; border-radius: 999px; letter-spacing: -.1em; }
   .board.paused .tile { color: transparent; }
   .board.paused::after { content: "Paused"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -225,6 +227,7 @@
     <div class="score">score <b id="score">0</b></div>
     <button class="primary" id="btnStart">Shake</button>
   </div>
+  <div class="hint live" id="liveCounts" hidden></div>
 
   <div class="board" id="board">
     <div class="grid idle" id="grid"></div>
@@ -243,7 +246,7 @@
 
   <div class="invite" id="invite" hidden>
     <p id="inviteText"></p>
-    <div class="actions"><button class="ghost" id="btnResend">Resend link</button><button class="ghost" id="btnDecline">Play my own board</button></div>
+    <div class="actions"><button class="ghost" id="btnLobby" hidden>Open lobby</button><button class="ghost" id="btnResend">Resend link</button><button class="ghost" id="btnDecline">Play my own board</button></div>
   </div>
 
   <div class="found">
@@ -280,6 +283,16 @@
     <button class="ghost" id="btnShareLast">Challenge with my last board</button>
     <button class="ghost" id="btnScanFriends">Scan a code</button>
   </div>
+  <div id="onlineSection" hidden>
+    <h2 style="margin-top:18px">Play online</h2>
+    <p class="hint">Results arrive by themselves — no scanning at the end. Invite people with the QR code or link that comes up.</p>
+    <div class="actions" style="margin-top:0">
+      <button class="ghost" id="btnNewSync">Live game (start together)</button>
+      <button class="ghost" id="btnNewAsync">Play-when-you-can game</button>
+      <button class="ghost" id="btnLiveFriends"></button>
+    </div>
+    <p class="hint" id="onlineHint"></p>
+  </div>
   <h2 style="margin-top:18px">Open a link</h2>
   <div class="actions" style="margin-top:0">
     <input class="plain" id="linkInput" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="paste a Cloggle link">
@@ -289,6 +302,18 @@
   <h2 style="margin-top:18px">Head to head</h2>
   <div id="friendsBody"></div>
   <div class="actions"><button class="ghost" data-close>Done</button></div>
+</div></div>
+
+<div class="sheet" id="sheetLobby"><div>
+  <h2>Live game</h2>
+  <p class="hint" id="lobbyHint"></p>
+  <div id="lobbyPlayers"></div>
+  <div class="actions">
+    <button class="primary" id="btnReady">I'm ready</button>
+    <button class="ghost" id="btnLobbyInvite">Invite (QR / link)</button>
+    <button class="ghost" id="btnLiveLobby"></button>
+    <button class="ghost" id="btnLobbyLeave">Leave game</button>
+  </div>
 </div></div>
 
 <div class="sheet" id="sheetQr"><div>
@@ -171977,21 +172002,24 @@ function startRound() {
   if (pc) { N = pc.size; drawSizeButtons(); letters = decodeBoard(pc.board); roundMinLen = pc.m; }
   else { newBoard(); roundMinLen = null; }
   round = { id: pc ? pc.id : randId(), board: encodeBoard(letters), size: N, m: minLen(), opps: pc ? pc.opps : [], shared: !!pc,
-            replayOf: pc && pc.replayOf, pauses: 0 };
+            replayOf: pc && pc.replayOf, pauses: 0, online: pc && pc.online || null };
   $("afterRound").hidden = true;
   renderBoard(); solve(); sfx.shake(); buzz(2);
   found = new Map(); score = 0; sel = []; timeLeft = ROUND_SECONDS; running = true;
   $("grid").classList.remove("idle"); $("score").textContent = "0"; $("chips").innerHTML = "";
   $("foundTitle").textContent = "Found words"; setStartLabel("End", false); drawMinLen(); $("input").value = ""; $("input").disabled = false;
   setTrace("", "", `${solution.size} words hidden · min ${minLen()} letters`);
-  clearPause(); $("btnPause").hidden = false; drawTimer(); startTick();
+  clearPause();
+  if (isSync()) { $("btnPause").hidden = true; startSyncTick(round.online.start); }   /* everyone shares one clock: no pausing */
+  else { $("btnPause").hidden = false; drawTimer(); startTick(); }
+  drawLive();
 }
 /* Pause hides the board (so it can't be studied for free) and stops the clock.
    The app also pauses itself when it's backgrounded: a phone call shouldn't cost the round. */
 let paused = false;
 function startTick() { clearInterval(tick); tick = setInterval(() => { timeLeft--; drawTimer(); if (timeLeft <= 0) endRound(); }, 1000); }
 function pauseRound() {
-  if (!running || paused) return;
+  if (!running || paused || isSync()) return;
   paused = true; clearInterval(tick); dragging = false; sel = []; drawSel(); round.pauses = (round.pauses || 0) + 1;
   $("board").classList.add("paused"); $("input").disabled = true; $("btnPause").textContent = "▶"; $("btnPause").setAttribute("aria-label", "Resume");
   setTrace("", "", "Paused — the board is hidden until you resume.");
@@ -172025,16 +172053,19 @@ function endRound() {
                   id: round.id, board: round.board, opponents: round.opps.map(o => scoreOpp(o, solution, round.m)) };
   if (round.replayOf) entry.replayOf = round.replayOf;
   if (round.pauses) entry.pauses = round.pauses;
+  if (round.online) entry.online = { gid: round.online.gid, mode: round.online.mode };
   /* accidental starts with nothing scored don't count toward stats, unless it was a friend's board */
   const keep = score > 0 || round.shared;
   if (keep) logGame(entry);
+  if (entry.online) submitOnline(entry);
   lastRound = { entry, logged: keep };
   roundMinLen = null; drawMinLen();
   $("btnChallenge").textContent = entry.opponents.length ? "Send my result" : "Challenge a friend";
   $("afterRound").hidden = false;
   setTrace("", "", pending ? "Round over. Shake to play the board you were sent." : "Round over. Shake for a new board.");
   drawInvite();
-  if (entry.opponents.length) showGame(entry);
+  if (entry.opponents.length || entry.online) showGame(entry);
+  drawLive();
 }
 
 /* ---------- word entry ---------- */
@@ -172044,7 +172075,7 @@ function submitWord(raw) {
   if (w.length < minLen()) { sfx.bad(); return setTrace(w, "bad", `${minLen()}+ letters`); }
   if (found.has(w)) { sfx.bad(); return setTrace(w, "bad", "already found"); }
   if (!solution.has(w)) { sfx.bad(); buzz(1); return setTrace(w, "bad", DICT.has(w) ? "not on this board" : "not a word"); }
-  const p = points(w); found.set(w, p); score += p; $("score").textContent = score;
+  const p = points(w); found.set(w, p); score += p; $("score").textContent = score; if (isSync()) pushLiveCount();
   const c = document.createElement("span"); c.className = "chip"; c.innerHTML = `${w} <small>${p}</small>`; $("chips").prepend(c);
   setTrace(w, "good", `+${p}`); sfx.good(p); buzz(p >= 3 ? 2 : 1);
 }
@@ -172083,6 +172114,7 @@ board.addEventListener("pointerup", finish); board.addEventListener("pointercanc
 
 $("input").addEventListener("keydown", e => { if (e.key === "Enter") { submitWord(e.target.value); e.target.value = ""; } });
 $("btnStart").addEventListener("click", () => {
+  if (!running && pending && pending.online && pending.online.mode === "sync") { openLobby(); return; }   /* a live game starts itself */
   if (!running) { if (Date.now() < startLock) return; startRound(); return; }
   if (!endConfirm) {   /* first tap only arms the button, so a stray tap can't kill a round */
     setStartLabel("End?", true); sfx.bad();
@@ -172095,7 +172127,7 @@ $("btnStart").addEventListener("click", () => {
 /* ---------- size ---------- */
 function setSize(n) {
   if (running) endRound();
-  if (pending) setPending(null);   /* picking a size means you're not playing the board you were sent */
+  if (pending) { if (pending.online && typeof stopWatching === "function") stopWatching(); setPending(null); }   /* picking a size means you're not playing the board you were sent */
   N = n; drawSizeButtons();
   newBoard(); renderBoard(); $("grid").classList.add("idle"); store.set("cloggle.size", n); drawMinLen();
 }
@@ -172226,7 +172258,8 @@ function parseLink(str) {
   if (!/^[a-z0-9]{4,16}$/i.test(id) || !/^([A-Z]{16}|[A-Z]{25})$/.test(b) || (m !== 3 && m !== 4)) return null;
   const pid = q.get("p"), name = (q.get("n") || "").trim().slice(0, 20) || "A friend";
   const words = q.has("w") ? [...new Set(q.get("w").split(".").filter(w => /^[a-z]{3,25}$/.test(w)))] : null;
-  return { id, board: b, size: b.length === 25 ? 5 : 4, m, from: pid ? { pid, name, words } : null };
+  const mode = { s: "sync", a: "async" }[q.get("o")] || null;
+  return { id, board: b, size: b.length === 25 ? 5 : 4, m, mode, from: pid ? { pid, name, words } : null };
 }
 function scoreOpp(o, sol, m) {
   const words = o.words.filter(w => sol.has(w));
@@ -172243,6 +172276,14 @@ function drawInvite() {
   if (!pending || running) { el.hidden = true; return; }
   const p = pending, what = `${p.size}×${p.size} board (${p.m}+ letters)`;
   const scores = p.opps.map(o => `${esc(o.name)} scored <b>${o.score}</b>`).join(", ");
+  $("btnLobby").hidden = !(p.online && p.online.mode === "sync");
+  if (p.online) {
+    const who = p.fromName ? `${esc(p.fromName)}'s` : "Your";
+    $("inviteText").innerHTML = p.online.mode === "sync"
+      ? `${who} live ${what}. It starts on everyone's phone at once when you're all ready.`
+      : `${who} play-when-you-can ${what}. ${esc(onlineStatus(p) || "Shake whenever you like.")}`;
+    $("btnResend").hidden = false; el.hidden = false; return;
+  }
   $("inviteText").innerHTML = p.replayOf ? `Replaying a ${what} from ${shortDate(p.replayDate)}. Best on it so far: ${esc(p.replayBest)}. Shake when you're ready.`
     : p.opps.length ? `${scores} on this ${what}. Shake when you're ready to take it on.`
     : p.fromName ? `${esc(p.fromName)} sent you a ${what}. Shake when you're both ready.`
@@ -172254,6 +172295,7 @@ function drawInvite() {
 /* Open a link (from the address bar or pasted in). Returns false if it isn't one. */
 function receiveLink(str) {
   const c = parseLink(str); if (!c) return false;
+  if (c.mode && onlineEnabled()) { joinFromLink(c); return true; }   /* falls back to the offline path if the server can't be reached */
   const from = c.from && c.from.pid !== myPid ? c.from : null;   /* your own link carries nothing new */
   const games = store.get("cloggle.games", []), g = games.find(x => x.id === c.id);
   if (g) {   /* already played it: this is a result coming back */
@@ -172297,9 +172339,10 @@ async function shareLink(p, words, text) {
   const name = myName(); if (name === null) return;
   const q = new URLSearchParams({ g: p.id, b: p.board, m: p.m, p: myPid, n: name });
   if (words) q.set("w", words.join("."));
+  if (p.online) q.set("o", p.online.mode[0]);
   const url = location.href.split("#")[0] + "#" + q;
   outgoing = { text, url };
-  $("qrTitle").textContent = words ? "Your result" : "Scan to play this board";
+  $("qrTitle").textContent = words ? "Your result" : p.online ? "Scan to join" : "Scan to play this board";
   $("qrHint").textContent = words
     ? "Your friend taps Scan in Cloggle and points it here. Scan theirs too, so you both get the comparison."
     : "Your friend taps Friends → Scan a code in Cloggle and points it here. Shake together once it loads.";
@@ -172452,6 +172495,8 @@ function showGame(g) {
         ps.map(p => p.set.has(w) ? `<span class="y${multi && c === 1 ? " solo" : ""}">${multi && c === 1 ? "★" : "✓"}</span>` : `<span>·</span>`).join("") + `</div>`; }).join("") +
     (attempts.length > 1 ? `<h3>Every play of this board (${attempts.length})</h3><div class="log">` + attempts.slice().reverse().map(x =>
       `<div class="vs" data-id="${esc(x.id)}"><span>${shortDate(x.date)}${x.id === g.id ? " (this one)" : ""}${vsLabel(x)}</span><b>${fmtMetric({ score: x.score, n: x.found }, x)}</b><span></span><span>›</span></div>`).join("") + `</div>` : "");
+  const waiting = g.online && waitingFor.get(g.online.gid);
+  if (waiting && waiting.length) $("vsBody").insertAdjacentHTML("afterbegin", `<p class="hint">Still playing: ${waiting.map(esc).join(", ")}. Their results will appear here.</p>`);
   $("vsBody").dataset.board = g.board || ""; $("vsBody").dataset.size = g.size;
   $("btnReplay").hidden = $("btnRechallenge").hidden = !g.board;
   $("btnReplay").disabled = running;
@@ -172523,7 +172568,7 @@ $("btnScan").onclick = startScan; $("btnScanFriends").onclick = startScan;
 $("btnSendLink").onclick = sendOutgoing;
 $("btnScanClose").onclick = () => { stopScan(); $("sheetScan").classList.remove("open"); };
 $("btnVs").onclick = () => { if (lastRound) showGame(lastRound.entry); };
-$("btnResend").onclick = () => { if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
+$("btnResend").onclick = () => { if (pending && pending.online) return shareLink(pending, null, "Cloggle: join my game."); if (pending) shareLink(pending, null, `Cloggle: here's a ${pending.size}×${pending.size} board for us both. Shake when we're both ready.`); };
 $("btnDecline").onclick = () => setSize(store.get("cloggle.size", 4));
 document.addEventListener("click", e => {   /* any logged game reopens its board and words */
   const d = e.target.closest(".vs[data-id]"); if (!d) return;
@@ -172545,6 +172590,240 @@ document.addEventListener("click", e => {
 document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet").classList.remove("open"));
 document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) { s.classList.remove("open"); if (s.id === "sheetScan") stopScan(); } }));
 document.addEventListener("visibilitychange", () => { if (document.hidden && scanStream) { stopScan(); $("sheetScan").classList.remove("open"); } });   /* never leave the camera on */
+
+
+/* ---------- online play (Firebase Realtime Database) ----------
+   Turned on by pasting the project's web config below (see README → Online play).
+   Every online game is still a QR code / link, so inviting works the same way;
+   the server only carries who joined, the shared start time for live games,
+   live word counts, and everyone's words once they've finished. The database
+   rules (database.rules.json) make results unreadable until you've posted your
+   own, and each phone still rescores every word itself. */
+const FIREBASE_CONFIG = null;
+const FB_EMULATOR = /[?&]emu(&|$)/.test(location.search);   /* local testing against `firebase emulators:start` */
+const onlineEnabled = () => !!(FIREBASE_CONFIG || FB_EMULATOR);
+const net = { ready: null, db: null, uid: null, offset: 0 };
+function fbInit() {
+  if (!net.ready) net.ready = (async () => {
+    if (!window.fb) await loadScript("vendor/firebase.min.js");
+    const cfg = FB_EMULATOR ? { apiKey: "demo-key", projectId: "demo-cloggle", databaseURL: "http://127.0.0.1:9000/?ns=demo-cloggle-default-rtdb" } : FIREBASE_CONFIG;
+    const app = fb.initializeApp(cfg), auth = fb.getAuth(app);
+    if (FB_EMULATOR) fb.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    net.db = fb.getDatabase(app);
+    if (FB_EMULATOR) fb.connectDatabaseEmulator(net.db, "127.0.0.1", 9000);
+    net.uid = (await fb.signInAnonymously(auth)).user.uid;
+    fb.onValue(fb.ref(net.db, ".info/serverTimeOffset"), s => { net.offset = s.val() || 0; });
+    return net;
+  })().catch(e => { net.ready = null; console.warn("online play unavailable", e); reportNetworkFailure(); throw e; });
+  return net.ready;
+}
+const serverNow = () => Date.now() + net.offset;
+const gref = (gid, path) => fb.ref(net.db, `games/${gid}/${path}`);
+const isSync = () => !!(round && running && round.online && round.online.mode === "sync");
+let liveCountsOn = store.get("cloggle.livecounts", true);
+const cur = { gid: null, players: {}, meta: null, off: [] };   /* the online game that's pending or being played */
+const waitingFor = new Map();                                  /* gid -> names of joined players with no result yet */
+
+function watchCurrent(gid) {   /* players (and, for live games, the start time) of the game you're about to play */
+  if (cur.gid === gid) return;
+  cur.off.forEach(f => f()); Object.assign(cur, { gid, players: {}, meta: null, off: [] });
+  cur.off.push(fb.onValue(gref(gid, "players"), s => {
+    cur.players = s.val() || {};
+    drawInvite(); drawLobby(); drawLive(); maybeStart();
+  }));
+  if (pending && pending.online && pending.online.mode === "sync")
+    cur.off.push(fb.onValue(gref(gid, "start"), s => {
+      const v = s.val(); if (!v || !pending || pending.id !== gid) return;
+      pending.online.start = v; store.set("cloggle.pending", pending); beginCountdown();
+    }));
+}
+function stopWatching() { cur.off.forEach(f => f()); Object.assign(cur, { gid: null, players: {}, meta: null, off: [] }); }
+function onlineStatus(p) {   /* async: who has finished — never what they got */
+  if (!p.online || cur.gid !== p.id || !net.uid) return "";
+  const others = Object.entries(cur.players).filter(([u]) => u !== net.uid).map(([, v]) => v);
+  if (!others.length) return "Nobody else has joined yet.";
+  const done = others.filter(v => v.done).map(v => v.name), not = others.filter(v => !v.done).map(v => v.name);
+  return (done.length ? `${done.join(" & ")} ${done.length > 1 ? "have" : "has"} played — finish yours to see how they did. ` : "") +
+         (not.length ? `Still to play: ${not.join(", ")}.` : "");
+}
+
+async function createOnline(mode) {
+  if (running) return;
+  const name = myName(); if (name === null) return;
+  $("onlineHint").textContent = "Connecting…";
+  try { await fbInit(); } catch { $("onlineHint").textContent = "Couldn't reach the server. QR codes and links still work offline."; return; }
+  newBoard();
+  const gid = randId() + randId().slice(0, 4);
+  const meta = { board: encodeBoard(letters), size: N, m: minLen(), mode, host: net.uid, created: fb.serverTimestamp() };
+  try {
+    await fb.set(gref(gid, "meta"), meta);
+    await fb.update(gref(gid, `players/${net.uid}`), { name, pid: myPid });
+  } catch (e) { $("onlineHint").textContent = "The server refused that (" + (e.code || e.message) + ")."; return; }
+  $("onlineHint").textContent = "";
+  enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true, online: { gid, mode, host: true } });
+  if (mode === "sync") openLobby();
+  shareLink(pending, null, mode === "sync" ? `Cloggle: join my live ${N}×${N} game.` : `Cloggle: play this ${N}×${N} board when you can — you'll see my score once you've played.`);
+}
+function enterOnline(p) {
+  setPending(p); showPendingBoard(); $("chips").innerHTML = ""; $("foundTitle").textContent = "Found words"; $("afterRound").hidden = true;
+  watchCurrent(p.id); remember(p.id, p.online.mode);
+}
+async function joinFromLink(c) {
+  const offline = () => {   /* server unreachable: still playable as an ordinary shared board (link without the online flag) */
+    receiveLink("#" + new URLSearchParams({ g: c.id, b: c.board, m: c.m, ...(c.from ? { p: c.from.pid, n: c.from.name } : {}) }));
+    setTrace("", "", "Couldn't reach the server — playing it offline. Swap QR codes at the end.");
+  };
+  setTrace("", "", "Joining…");
+  try { await fbInit(); } catch { return offline(); }
+  const played = store.get("cloggle.games", []).find(x => x.id === c.id);
+  if (played) { watchResults(c.id); showGame(played); setTrace("", "", ""); return; }
+  if (running) { setTrace("", "", "Finish this round first, then open the invite again."); return; }
+  let meta;
+  try { meta = (await fb.get(gref(c.id, "meta"))).val(); } catch { return offline(); }
+  if (!meta) return offline();
+  const name = myName(); if (name === null) return;
+  try { await fb.update(gref(c.id, `players/${net.uid}`), { name, pid: myPid }); } catch { return offline(); }
+  const fromMe = c.from && c.from.pid === myPid;
+  enterOnline({ id: c.id, board: meta.board, size: meta.size, m: meta.m, opps: [], fromName: fromMe ? null : c.from && c.from.name,
+                mine: meta.host === net.uid, online: { gid: c.id, mode: meta.mode, host: meta.host === net.uid } });
+  setTrace("", "", "Joined.");
+  if (meta.mode === "sync") openLobby();
+}
+
+/* ---------- live games: lobby, shared countdown, live counts ---------- */
+let countdown = null;
+function openLobby() {
+  if (!pending || !pending.online) return;
+  fbInit().then(() => { watchCurrent(pending.id); drawLobby(); }).catch(() => {});
+  $("sheetLobby").classList.add("open"); drawLobby();
+}
+function drawLobby() {
+  if (!pending || !pending.online || pending.online.mode !== "sync") return;
+  const ps = Object.entries(cur.gid === pending.id ? cur.players : {});
+  const me = ps.find(([u]) => u === net.uid);
+  $("lobbyPlayers").innerHTML = ps.length ? ps.map(([u, v]) => row(esc(v.name) + (u === net.uid ? " (you)" : ""), v.ready ? "✓ ready" : "not ready")).join("") : `<p class="hint">Connecting…</p>`;
+  $("btnReady").textContent = me && me[1].ready ? "Not ready" : "I'm ready";
+  $("lobbyHint").textContent = ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
+    : "When everyone is ready, all phones count down together. There's no pausing in a live game.";
+  $("btnLiveLobby").textContent = $("btnLiveFriends").textContent = `Others' live word counts: ${liveCountsOn ? "shown" : "hidden"}`;
+}
+function maybeStart() {   /* the host's phone sets the start time; the server rejects it from anyone else */
+  if (!pending || !pending.online || pending.online.mode !== "sync" || !pending.online.host || pending.online.start) return;
+  const ps = Object.values(cur.players);
+  if (ps.length >= 2 && ps.every(v => v.ready)) fb.set(gref(pending.id, "start"), Math.round(serverNow() + 5000)).catch(e => console.warn("start", e));
+}
+function beginCountdown() {
+  if (countdown || running || !pending || !pending.online.start) return;
+  const st = pending.online.start;
+  document.querySelectorAll(".sheet.open").forEach(s => s.classList.remove("open")); stopScan();
+  $("invite").hidden = true; $("score").textContent = "0"; $("btnStart").disabled = true; setStartLabel("Starting", false);
+  const step = () => {
+    const d = st - serverNow();
+    if (d > 0) { $("timer").textContent = String(Math.ceil(d / 1000)); setTrace("", "", "Get ready…"); if (d < 3100 && Math.ceil(d / 1000) !== step.last) { step.last = Math.ceil(d / 1000); sfx.tick(4 - step.last); buzz(1); } return; }
+    clearInterval(countdown); countdown = null; $("btnStart").disabled = false;
+    if (d > -ROUND_SECONDS * 1000) startRound();
+    else { setTrace("", "", "That live game has already finished."); setPending(null); stopWatching(); }
+  };
+  countdown = setInterval(step, 100); step();
+}
+function startSyncTick(start) {
+  clearInterval(tick); timeLeft = -1;
+  const upd = () => {
+    const t = Math.max(0, ROUND_SECONDS - Math.floor((serverNow() - start) / 1000));
+    if (t !== timeLeft) { timeLeft = t; drawTimer(); }
+    if (t <= 0) endRound();
+  };
+  tick = setInterval(upd, 250); upd();
+}
+let liveTimer = null;
+function pushLiveCount() {   /* throttled: at most one write a second */
+  if (liveTimer) return;
+  liveTimer = setTimeout(() => { liveTimer = null; if (round && round.online) fb.update(gref(round.online.gid, `players/${net.uid}`), { n: found.size }).catch(() => {}); }, 1000);
+}
+function drawLive() {
+  const el = $("liveCounts");
+  if (!isSync() || !liveCountsOn || cur.gid !== round.online.gid) { el.hidden = true; return; }
+  const txt = Object.entries(cur.players).filter(([u]) => u !== net.uid).map(([, v]) => `${v.name} ${v.n || 0}`).join(" · ");
+  el.textContent = txt ? `words so far — ${txt}` : ""; el.hidden = !txt;
+}
+function toggleLiveCounts() { liveCountsOn = !liveCountsOn; store.set("cloggle.livecounts", liveCountsOn); drawLobby(); drawLive(); }
+
+/* ---------- results: post yours, collect everyone else's ---------- */
+const remembered = () => store.get("cloggle.online", []);
+function remember(gid, mode, patch) {
+  const list = remembered().filter(x => Date.now() - x.at < 30 * 864e5);   /* follow games for a month */
+  let r = list.find(x => x.gid === gid); if (!r) { r = { gid, mode, at: Date.now() }; list.push(r); }
+  Object.assign(r, patch || {}); store.set("cloggle.online", list.slice(-60));
+}
+async function submitOnline(entry) {
+  const gid = entry.online.gid;
+  remember(gid, entry.online.mode, { words: entry.words, up: false });
+  try {
+    await fbInit();
+    await fb.set(gref(gid, `results/${net.uid}`), { words: entry.words.join("."), at: fb.serverTimestamp() })
+      .catch(async e => { if (!(await fb.get(gref(gid, `results/${net.uid}`)).catch(() => null))) throw e; });   /* already posted from an earlier try */
+    await fb.update(gref(gid, `players/${net.uid}`), { done: true, n: entry.words.length });
+    remember(gid, entry.online.mode, { up: true, words: undefined });
+    watchResults(gid);
+  } catch (e) { console.warn("result not posted yet", e); setTrace("", "", "Your result will be sent next time you open Cloggle online."); }
+  if (cur.gid === gid) stopWatching();
+}
+const watched = new Map(), solCache = new Map();
+function watchResults(gid) {
+  if (watched.has(gid)) return;
+  const st = { players: {}, results: {} }; watched.set(gid, st);
+  const merge = () => {
+    const games = store.get("cloggle.games", []), g = games.find(x => x.id === gid); if (!g || !g.board) return;
+    const m = gameMinLen(g);
+    if (!solCache.has(gid)) solCache.set(gid, solveBoard(decodeBoard(g.board), g.size, m));
+    g.opponents = g.opponents || [];
+    const fresh = [];
+    for (const [u, r] of Object.entries(st.results)) {
+      if (u === net.uid) continue;
+      const pl = st.players[u] || {}, pid = pl.pid || u;
+      const o = scoreOpp({ pid, name: pl.name || "Someone", words: (r.words || "").split(".").filter(w => /^[a-z]{3,25}$/.test(w)) }, solCache.get(gid), m);
+      const old = g.opponents.find(x => x.pid === pid);
+      if (!old || old.words.length !== o.words.length || old.name !== o.name) { upsertOpp(g.opponents, o); if (!old) fresh.push(o.name); }
+    }
+    waitingFor.set(gid, Object.entries(st.players).filter(([u, v]) => u !== net.uid && !st.results[u]).map(([, v]) => v.name));
+    if (fresh.length) {
+      store.set("cloggle.games", games);
+      if (!running) setTrace("", "", `${fresh.join(" & ")} finished — see Results.`);
+    }
+    if (lastRound && lastRound.entry.id === gid) lastRound.entry = g;
+    if ($("sheetVs").classList.contains("open") && shownGame && shownGame.id === gid) showGame(g);
+  };
+  fb.onValue(gref(gid, "players"), s => { st.players = s.val() || {}; merge(); });
+  fb.onValue(gref(gid, "results"), s => { st.results = s.val() || {}; merge(); }, e => console.warn("results", e));
+}
+function resumeOnline() {   /* at launch: re-follow recent games, retry results that didn't make it up */
+  const list = remembered();
+  if (!onlineEnabled() || !online || !(list.length || (pending && pending.online))) return;
+  fbInit().then(() => {
+    const games = store.get("cloggle.games", []);
+    for (const r of list) {
+      const g = games.find(x => x.id === r.gid); if (!g) continue;
+      if (r.up === false) submitOnline(g); else watchResults(r.gid);
+    }
+    if (pending && pending.online) watchCurrent(pending.id);
+  }).catch(() => {});
+}
+
+$("btnNewSync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync"); };
+$("btnNewAsync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("async"); };
+$("btnLobby").onclick = openLobby;
+$("btnReady").onclick = () => {
+  if (!pending || !net.uid) return;
+  const me = cur.players[net.uid]; fb.update(gref(pending.id, `players/${net.uid}`), { ready: !(me && me.ready) }).catch(() => {});
+};
+$("btnLobbyInvite").onclick = () => pending && shareLink(pending, null, `Cloggle: join my live ${pending.size}×${pending.size} game.`);
+$("btnLiveLobby").onclick = toggleLiveCounts; $("btnLiveFriends").onclick = toggleLiveCounts;
+$("btnLobbyLeave").onclick = () => {
+  if (pending && pending.online && net.uid) fb.remove(gref(pending.id, `players/${net.uid}`)).catch(() => {});
+  stopWatching(); $("sheetLobby").classList.remove("open"); setSize(store.get("cloggle.size", 4));
+};
+$("onlineSection").hidden = !onlineEnabled();
+drawLobby();
 
 /* ---------- init ---------- */
 applyTheme(store.get("cloggle.theme", "letterpress"));
@@ -172580,6 +172859,9 @@ window.cloggleNet = { isOnline: () => online, reportNetworkFailure };
 addEventListener("online", () => setOnline(true));
 addEventListener("offline", () => setOnline(false));
 setOnline(navigator.onLine !== false);
+
+resumeOnline();
+addEventListener("online", resumeOnline);
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn("sw registration failed", e)));
