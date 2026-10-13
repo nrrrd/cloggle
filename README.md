@@ -75,6 +75,8 @@ the start time, live word counts, and finished words. Everyone's phone rescores 
   unless you hide them (lobby or Friends), a per-person setting.
 - **Live 1-on-1** (Friends → Live 1-on-1): a waiting room with no ready buttons; the countdown
   starts the moment the second person joins.
+- **Starting any online game** (Live 1-on-1, Live group, Play-when-you-can) asks who's playing:
+  pick from the people you've played with, or choose *Someone new* for the QR code / link.
 - **No link needed after the first game:** everyone you've played online is listed under
   Friends → Play online. **Play live** puts you in a waiting room and pops an invite up in their
   app (Join / No); **Send a board** offers them a play-when-you-can game the same way. Tick two or more people for a **live group** game (ready buttons) or to send them all a board.

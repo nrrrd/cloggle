@@ -76,7 +76,7 @@
 
   .status { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 2px; }
   .status .primary { font-size: 16px; padding: 8px 14px; min-width: 84px; text-align: center; }
-  .status .primary[disabled] { opacity: .45; }
+  .primary[disabled] { opacity: .45; cursor: default; }
   .status .primary.confirm { background: var(--bad); }
   .timer { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .timer.low { color: var(--bad); }
@@ -301,7 +301,7 @@
     <h2 style="margin-top:18px">Play online</h2>
     <p class="hint">Results arrive by themselves — no scanning at the end. Invite people with the QR code or link that comes up.</p>
     <div id="peopleList"></div>
-    <p class="hint" style="margin-top:12px">Someone new? Start a game and they scan the QR code (or open the link); after that they're on your list above.</p>
+    <p class="hint" style="margin-top:12px">Start a game — you'll pick who from your list, or show a QR code for someone new (after one game they're on your list too).</p>
     <div class="actions" style="margin-top:0">
       <button class="ghost" id="btnNew1v1">Live 1-on-1</button>
       <button class="ghost" id="btnNewSync">Live group</button>
@@ -319,6 +319,15 @@
   <h2 style="margin-top:18px">Head to head</h2>
   <div id="friendsBody"></div>
   <div class="actions"><button class="ghost" data-close>Done</button></div>
+</div></div>
+
+<div class="sheet" id="sheetPick"><div>
+  <h2 id="pickTitle">Who's playing?</h2>
+  <div id="pickList"></div>
+  <div class="actions">
+    <button class="primary" id="btnPickSend" disabled>Send invite</button>
+    <button class="ghost" id="btnPickNew">Someone new (QR / link)</button>
+  </div>
 </div></div>
 
 <div class="sheet" id="sheetIncoming"><div>
@@ -172981,9 +172990,31 @@ $("incomingList").addEventListener("click", e => {
   if (j && v) joinFromLink({ id: gid, board: null, m: v.m, mode: v.mode, from: { pid: null, name: v.name } });
 });
 
-$("btnNewSync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync"); };
-$("btnNew1v1").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("sync", { auto: true }); };
-$("btnNewAsync").onclick = () => { $("sheetFriends").classList.remove("open"); createOnline("async"); };
+/* Starting a game: pick from the people you've played with, or fall back to a QR code / link. */
+let pickFor = null;
+function choosePeople(mode, auto) {
+  $("sheetFriends").classList.remove("open");
+  const list = Object.entries(people()).sort((a, b) => b[1].at - a[1].at);
+  if (!list.length) return createOnline(mode, { auto });   /* nobody on the list yet: straight to the QR code */
+  pickFor = { mode, auto };
+  const one = !!auto;   /* 1-on-1 picks exactly one person */
+  $("pickTitle").textContent = mode === "async" ? "Send a board to…" : one ? "Play live 1-on-1 with…" : "Live group with…";
+  $("pickList").innerHTML = list.map(([u, v]) =>
+    `<label class="person"><input type="${one ? "radio" : "checkbox"}" name="pick" value="${esc(u)}"><span>${esc(v.name)}</span></label>`).join("");
+  $("btnPickSend").disabled = true;
+  $("btnPickSend").textContent = mode === "async" ? "Send board" : one ? "Invite" : "Invite ticked";
+  $("sheetPick").classList.add("open");
+}
+$("pickList").addEventListener("change", () => { $("btnPickSend").disabled = !$("pickList").querySelector("input:checked"); });
+$("btnPickSend").onclick = () => {
+  const to = [...$("pickList").querySelectorAll("input:checked")].map(c => ({ uid: c.value, name: people()[c.value].name }));
+  if (!to.length || !pickFor) return;
+  closeSheet($("sheetPick")); createOnline(pickFor.mode, { auto: pickFor.auto, to });
+};
+$("btnPickNew").onclick = () => { closeSheet($("sheetPick")); if (pickFor) createOnline(pickFor.mode, { auto: pickFor.auto }); };
+$("btnNewSync").onclick = () => choosePeople("sync", false);
+$("btnNew1v1").onclick = () => choosePeople("sync", true);
+$("btnNewAsync").onclick = () => choosePeople("async", false);
 $("btnLobby").onclick = openLobby;
 $("btnReady").onclick = () => {
   if (!pending || !net.uid) return;
