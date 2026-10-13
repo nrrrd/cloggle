@@ -55,8 +55,17 @@
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         "$gid": {
-          ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || (auth.uid !== $uid && !data.exists() && newData.child('from').val() === auth.uid && root.child('games/' + $gid + '/meta/host').val() === auth.uid) || (data.child('from').val() === auth.uid && !newData.exists()))",
+          ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || (auth.uid !== $uid && !data.exists() && newData.child('from').val() === auth.uid && root.child('games/' + $gid + '/meta/host').val() === auth.uid && !root.child('blocks/' + $uid + '/' + auth.uid).exists()) || (data.child('from').val() === auth.uid && !newData.exists()))",
           ".validate": "newData.hasChildren(['from', 'name', 'mode', 'at']) && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 20 && (newData.child('mode').val() === 'sync' || newData.child('mode').val() === 'async') && newData.child('at').val() === now"
+        }
+      }
+    },
+    "blocks": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$other": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isBoolean()"
         }
       }
     }
