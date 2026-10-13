@@ -132,6 +132,15 @@
     border-radius: 16px 16px 0 0; padding: 18px 18px calc(18px + env(safe-area-inset-bottom));
   }
   .sheet h2 { margin: 0 0 12px; font-size: 22px; }
+  .sheet { cursor: pointer; }   /* iOS only fires taps on the backdrop if it looks clickable */
+  .sheet > div { cursor: auto; }
+  /* every sheet: a header that stays put while you scroll, with a grab handle and a close button */
+  .sheethead { position: sticky; top: -18px; z-index: 3; background: var(--bg); margin: -18px -18px 10px; padding: 18px 56px 8px 18px;
+               border-radius: 16px 16px 0 0; touch-action: none; cursor: grab; }
+  .sheethead h2 { margin: 0; }
+  .sheethead .grab { position: absolute; top: 6px; left: 50%; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: var(--tile-edge); }
+  .sheethead .x { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; background: var(--panel);
+                  color: var(--muted); font-size: 16px; line-height: 36px; text-align: center; padding: 0; }
   .sheet .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--tile-edge); }
   .sheet .row span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
   .sheet .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
@@ -173,6 +182,8 @@
   .person { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--tile-edge); }
   .person span { flex: 1; }
   .person button { padding: 8px 12px; }
+  .person label { flex: 1; display: flex; align-items: center; gap: 8px; }
+  .person input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
   .pausebtn { padding: 6px 11px; font-size: 13px; border-radius: 999px; letter-spacing: -.1em; }
   .board.paused .tile { color: transparent; }
   .board.paused::after { content: "Paused"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -181,7 +192,7 @@
   .seg button { font-size: 13px; padding: 5px 10px; border-radius: 999px; color: var(--muted); }
   .seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .controls { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
-  .gamehead { position: sticky; top: -18px; z-index: 1; background: var(--bg); padding: 4px 0 2px; margin: 0 -2px; }
+  .gamehead { position: sticky; top: 38px; z-index: 1; background: var(--bg); padding: 4px 0 2px; margin: 0 -2px; }
   .gamehead .mini { max-width: 150px; }
   .gamehead .mini div { font-size: 17px; }
   .gamehead .mini.n5 div { font-size: 13px; }
@@ -172600,8 +172611,32 @@ document.addEventListener("click", e => {
   if ($("sheetFriends").classList.contains("open")) renderFriends();
 });
 
-document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => b.closest(".sheet").classList.remove("open"));
-document.querySelectorAll(".sheet").forEach(s => s.addEventListener("click", e => { if (e.target === s) { s.classList.remove("open"); if (s.id === "sheetScan") stopScan(); } }));
+/* Sheets close three ways: the ✕ (or Done) button, a tap on the dimmed backdrop, or dragging the header down. */
+function closeSheet(s) {
+  s.classList.remove("open"); s.firstElementChild.style.transform = ""; s.firstElementChild.style.transition = "";
+  if (s.id === "sheetScan") stopScan();
+}
+document.querySelectorAll(".sheet").forEach(s => {
+  const panel = s.firstElementChild, h2 = panel.querySelector("h2");
+  const head = document.createElement("div"); head.className = "sheethead";
+  head.innerHTML = `<span class="grab"></span><button class="x" aria-label="Close">✕</button>`;
+  panel.insertBefore(head, panel.firstChild); if (h2) head.insertBefore(h2, head.lastChild);
+  head.querySelector(".x").onclick = () => closeSheet(s);
+  let y0 = null, dy = 0;
+  head.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    y0 = e.clientY; dy = 0; panel.style.transition = "none"; head.setPointerCapture(e.pointerId);
+  });
+  head.addEventListener("pointermove", e => { if (y0 === null) return; dy = Math.max(0, e.clientY - y0); panel.style.transform = `translateY(${dy}px)`; });
+  const release = () => {
+    if (y0 === null) return; y0 = null; panel.style.transition = "transform .18s ease-out";
+    if (dy > 80) { panel.style.transform = "translateY(100%)"; setTimeout(() => closeSheet(s), 180); }
+    else panel.style.transform = "";
+  };
+  head.addEventListener("pointerup", release); head.addEventListener("pointercancel", release);
+  s.addEventListener("click", e => { if (e.target === s) closeSheet(s); });
+});
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => closeSheet(b.closest(".sheet")));
 document.addEventListener("visibilitychange", () => { if (document.hidden && scanStream) { stopScan(); $("sheetScan").classList.remove("open"); } });   /* never leave the camera on */
 
 
@@ -172669,19 +172704,23 @@ function onlineStatus(p) {   /* async: who has finished — never what they got 
          (not.length ? `Still to play: ${not.join(", ")}.` : "");
 }
 
-async function createOnline(mode, opts = {}) {   /* opts: { auto: start when a 2nd player joins, to: { uid, name } invite directly } */
+async function createOnline(mode, opts = {}) {   /* opts: { auto: start when a 2nd player joins, to: [{ uid, name }] invite directly } */
   if (running) return;
   const name = myName(); if (name === null) return;
   $("onlineHint").textContent = "Connecting…";
   try { await fbInit(); } catch { $("onlineHint").textContent = "Couldn't reach the server. QR codes and links still work offline."; return; }
   newBoard();
   const gid = randId() + randId().slice(0, 4);
-  const auto = mode === "sync" && !!(opts.auto || opts.to);
+  const to = opts.to || [], names = to.map(t => t.name).join(", ");
+  const auto = mode === "sync" && !!(opts.auto || to.length === 1);   /* one invitee: start when they join; a group uses ready buttons */
   const meta = { board: encodeBoard(letters), size: N, m: minLen(), mode, host: net.uid, created: fb.serverTimestamp(), auto };
   try {
     await fb.set(gref(gid, "meta"), meta);
     await fb.update(gref(gid, `players/${net.uid}`), { name, pid: myPid });
-    if (opts.to) await fb.set(fb.ref(net.db, `invites/${opts.to.uid}/${gid}`), { from: net.uid, name, mode, size: N, m: meta.m, at: fb.serverTimestamp() });
+    const refused = [];
+    for (const t of to) await fb.set(fb.ref(net.db, `invites/${t.uid}/${gid}`), { from: net.uid, name, mode, size: N, m: meta.m, at: fb.serverTimestamp() })
+      .catch(() => refused.push(t.name));   /* they've blocked you, most likely */
+    if (refused.length) setTimeout(() => setTrace("", "", `Couldn't invite ${refused.join(", ")}.`), 300);
   } catch (e) {
     $("onlineHint").textContent = /permission/i.test(e.code || e.message)
       ? "The server refused that (PERMISSION_DENIED). Most likely the database rules haven't been published yet — see README → Online play."
@@ -172690,9 +172729,9 @@ async function createOnline(mode, opts = {}) {   /* opts: { auto: start when a 2
   }
   $("onlineHint").textContent = "";
   enterOnline({ id: gid, board: meta.board, size: N, m: meta.m, opps: [], mine: true,
-                online: { gid, mode, host: true, auto, to: opts.to ? opts.to.uid : null, toName: opts.to ? opts.to.name : null } });
+                online: { gid, mode, host: true, auto, to: to.map(t => t.uid), toName: names || null } });
   if (mode === "sync") openLobby();
-  if (opts.to) { if (mode === "async") setTrace("", "", `Sent to ${opts.to.name}. Shake whenever you like.`); return; }   /* no QR needed */
+  if (to.length) { if (mode === "async") setTrace("", "", `Sent to ${names}. Shake whenever you like.`); return; }   /* no QR needed */
   shareLink(pending, null, mode === "sync" ? `Cloggle: join my live ${N}×${N} game.` : `Cloggle: play this ${N}×${N} board when you can — you'll see my score once you've played.`);
 }
 function enterOnline(p) {
@@ -172738,12 +172777,12 @@ function drawLobby() {
   $("lobbyPlayers").innerHTML = ps.length ? ps.map(([u, v]) => row(esc(v.name) + (u === net.uid ? " (you)" : ""), pending.online.auto ? "here" : v.ready ? "✓ ready" : "not ready")).join("") : `<p class="hint">Connecting…</p>`;
   const o = pending.online;
   $("btnReady").hidden = !!o.auto;
-  $("btnLobbyInvite").hidden = !!o.to;
+  $("btnLobbyInvite").hidden = !!o.auto && !!(o.to && o.to.length);
   $("btnReady").textContent = me && me[1].ready ? "Not ready" : "I'm ready";
   $("lobbyTitle").textContent = o.auto ? "Waiting room" : "Live game";
   $("lobbyHint").textContent = o.auto
     ? (ps.length < 2 ? `Waiting for ${o.toName || "someone"} to join — the countdown starts the moment they do.` : "Starting…")
-    : ps.length < 2 ? "Invite at least one person — the game starts by itself once everyone is ready."
+    : ps.length < 2 ? (o.toName ? `Invited ${o.toName}. The game` : "Invite at least one person — the game") + " starts by itself once everyone is ready."
     : "When everyone is ready, all phones count down together. There's no pausing in a live game.";
 }
 function maybeStart() {   /* the host's phone sets the start time; the server rejects it from anyone else */
@@ -172857,22 +172896,54 @@ const people = () => store.get("cloggle.people", {});
 function notePeople(players) {
   const all = people(); let changed = false;
   for (const [u, v] of Object.entries(players || {})) {
-    if (u === net.uid || !v || !v.name) continue;
+    if (u === net.uid || !v || !v.name || blocked()[u]) continue;
     if (!all[u] || all[u].name !== v.name) { all[u] = { name: v.name, pid: v.pid, at: Date.now() }; changed = true; }
   }
   if (changed) { store.set("cloggle.people", all); drawPeople(); }
 }
+const blocked = () => store.get("cloggle.blocked", {});
 function drawPeople() {
-  const list = Object.entries(people()).sort((a, b) => b[1].at - a[1].at);
-  $("peopleList").innerHTML = list.length
-    ? list.map(([u, v]) => `<div class="person"><span>${esc(v.name)}</span><button class="ghost" data-invite="sync" data-uid="${esc(u)}">Play live</button><button class="ghost" data-invite="async" data-uid="${esc(u)}">Send a board</button></div>`).join("")
-    : `<p class="hint">Nobody yet.</p>`;
+  const list = Object.entries(people()).sort((a, b) => b[1].at - a[1].at), bl = Object.entries(blocked());
+  $("peopleList").innerHTML = (list.length
+    ? list.map(([u, v]) => `<div class="person" data-uid="${esc(u)}"><label><input type="checkbox" data-pick="${esc(u)}"> ${esc(v.name)}</label>` +
+        `<button class="ghost" data-invite="sync">Live</button><button class="ghost" data-invite="async">Board</button><button class="ghost" data-more aria-label="More">⋯</button></div>`).join("") +
+      `<div class="actions" id="groupBar" hidden><button class="ghost" data-group="sync">Live group with ticked</button><button class="ghost" data-group="async">Send ticked a board</button></div>`
+    : `<p class="hint">Nobody yet.</p>`) +
+    (bl.length ? `<p class="hint" style="margin-top:10px">Blocked: ${bl.map(([u, v]) => `${esc(v.name)} <button class="ghost" data-unblock="${esc(u)}">Unblock</button>`).join(" ")}</p>` : "");
 }
+function forget(uid) { const all = people(); delete all[uid]; store.set("cloggle.people", all); }
+$("peopleList").addEventListener("change", () => {
+  $("groupBar").hidden = $("peopleList").querySelectorAll("[data-pick]:checked").length < 2;
+});
 $("peopleList").addEventListener("click", e => {
-  const b = e.target.closest("[data-invite]"); if (!b) return;
-  const p = people()[b.dataset.uid]; if (!p) return;
-  $("sheetFriends").classList.remove("open");
-  createOnline(b.dataset.invite, { to: { uid: b.dataset.uid, name: p.name } });
+  const row = e.target.closest(".person"), uid = row && row.dataset.uid, p = uid && people()[uid];
+  const inv = e.target.closest("[data-invite]"), grp = e.target.closest("[data-group]");
+  if (inv && p) { $("sheetFriends").classList.remove("open"); return createOnline(inv.dataset.invite, { to: [{ uid, name: p.name }] }); }
+  if (grp) {
+    const to = [...$("peopleList").querySelectorAll("[data-pick]:checked")].map(c => ({ uid: c.dataset.pick, name: people()[c.dataset.pick].name }));
+    $("sheetFriends").classList.remove("open"); return createOnline(grp.dataset.group, { to });
+  }
+  if (e.target.closest("[data-more]") && p) {   /* swap the row's buttons for remove / block */
+    row.querySelectorAll("button").forEach(x => x.remove());
+    row.insertAdjacentHTML("beforeend", `<button class="ghost" data-forget>Remove</button><button class="ghost" data-block>Block</button><button class="ghost" data-cancel>Cancel</button>`);
+    return;
+  }
+  if (e.target.closest("[data-cancel]")) return drawPeople();
+  if (e.target.closest("[data-forget]") && p) { forget(uid); return drawPeople(); }
+  if (e.target.closest("[data-block]") && p) {
+    /* the server refuses their invites from now on; we also drop any already waiting */
+    const bl = blocked(); bl[uid] = { name: p.name }; store.set("cloggle.blocked", bl); forget(uid); drawPeople();
+    fbInit().then(() => {
+      fb.set(fb.ref(net.db, `blocks/${net.uid}/${uid}`), true).catch(e => console.warn("block", e));
+      incoming.filter(v => v.from === uid).forEach(v => fb.remove(fb.ref(net.db, `invites/${net.uid}/${v.gid}`)).catch(() => {}));
+    }).catch(() => {});
+    return;
+  }
+  const ub = e.target.closest("[data-unblock]");
+  if (ub) {
+    const bl = blocked(), u = ub.dataset.unblock; delete bl[u]; store.set("cloggle.blocked", bl); drawPeople();
+    fbInit().then(() => fb.remove(fb.ref(net.db, `blocks/${net.uid}/${u}`))).catch(() => {});
+  }
 });
 
 let incoming = [], inviteOff = null;
@@ -172884,6 +172955,7 @@ function listenInvites() {
     for (const [gid, v] of Object.entries(s.val() || {})) {
       const max = v.mode === "sync" ? 15 * 60e3 : 7 * 864e5;   /* a live invite goes stale fast */
       if (serverNow() - (v.at || 0) > max) { fb.remove(fb.ref(net.db, `invites/${net.uid}/${gid}`)).catch(() => {}); continue; }
+      if (blocked()[v.from]) { fb.remove(fb.ref(net.db, `invites/${net.uid}/${gid}`)).catch(() => {}); continue; }
       incoming.push({ gid, ...v });
     }
     drawIncoming();
@@ -172921,7 +172993,7 @@ $("btnLobbyInvite").onclick = () => pending && shareLink(pending, null, `Cloggle
 $("btnLiveLobby").onclick = toggleLiveCounts; $("btnLiveFriends").onclick = toggleLiveCounts;
 $("btnLobbyLeave").onclick = () => {
   if (pending && pending.online && net.uid) fb.remove(gref(pending.id, `players/${net.uid}`)).catch(() => {});
-  if (pending && pending.online && pending.online.to) fb.remove(fb.ref(net.db, `invites/${pending.online.to}/${pending.id}`)).catch(() => {});
+  if (pending && pending.online && pending.online.to) [].concat(pending.online.to).forEach(u => fb.remove(fb.ref(net.db, `invites/${u}/${pending.id}`)).catch(() => {}));
   stopWatching(); $("sheetLobby").classList.remove("open"); setSize(store.get("cloggle.size", 4));
 };
 $("onlineSection").hidden = !onlineEnabled();

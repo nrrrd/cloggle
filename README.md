@@ -77,7 +77,9 @@ the start time, live word counts, and finished words. Everyone's phone rescores 
   starts the moment the second person joins.
 - **No link needed after the first game:** everyone you've played online is listed under
   Friends → Play online. **Play live** puts you in a waiting room and pops an invite up in their
-  app (Join / No); **Send a board** offers them a play-when-you-can game the same way. Their
+  app (Join / No); **Send a board** offers them a play-when-you-can game the same way. Tick two or more people for a **live group** game (ready buttons) or to send them all a board.
+  **⋯ → Remove** takes someone off your list (they can still invite you); **⋯ → Block** also makes
+  the server refuse their invites (undo under the list). Their
   app has to be open to see it — there are no push notifications. Live invites expire after
   15 minutes, play-when-you-can invites after a week.
 - **Play-when-you-can** (Friends → Play-when-you-can): play any time; you see who has
