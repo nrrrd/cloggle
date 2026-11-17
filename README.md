@@ -1,6 +1,21 @@
 # cloggle
 a simple word game for your phone
 
+## Playing
+
+The header holds the next board's size and shortest word (**4×4 · 3+** — tap it to change
+either; it's locked during a round), **Friends**, **Stats** and the settings button (theme,
+sound, haptics, live-game counts). The board stays face down until you **Shake**. While you
+play, the score shows how many of the board's words you've found. On a phone you trace words
+with your finger; the keyboard button next to ↻ brings up a box for typing them instead (on a
+computer the box is always there).
+
+When a round ends, **Results** slides up by itself, with **Next board**, **Challenge** and
+**Play it again** pinned to the bottom.
+
+Themes: letterpress, arcade, chalk, tidepool, ember, phosphor (green-screen CRT), blueprint,
+riso, newsprint and bubblegum. Each button in Settings is drawn in its own theme.
+
 ## Files
 
 | file | what it is |
@@ -25,7 +40,7 @@ Shake. Their device re-solves the board and rescores the sender's words, so a li
 can't claim points the board doesn't contain.
 
 - **Challenge a friend** appears after every round and sends that board plus your words.
-- **Friends → Send a new board** sends an unplayed board so you can both play side by side
+- **Friends → New board for us both** sends an unplayed board so you can both play side by side
   (tap Shake together; each round is its own 3-minute timer).
 - When the other person finishes, they tap **Send my result** — the same kind of link.
   Opening a link for a board you've already played merges their result into your log and
@@ -42,12 +57,12 @@ Every logged game keeps its board. Tap a row in Stats or Friends to see the boar
 words, and the words nobody found; tap a word to light up its path.
 
 **Results** (after any round, or tap any logged game) work for any number of players:
-the headline is the share of the board's words each player found (flip to points with the
-toggle), then a side-by-side table — words, points, score with shared words cancelled, best
+the headline is each player's points (flip to the share of the board's words they found with
+the toggle), then a side-by-side table — words, points, score with shared words cancelled, best
 word, words only that player found, words in common with you — and every word the board
 holds, highest-scoring first (or A–Z), with a ✓ under each player who found it and ★ where
-only one did. Tap a word to light up its path. **Play this board again** and **Challenge with
-this board** are at the bottom.
+only one did. Tap a word to light up its path. **Next board** (after the round you just
+played), **Challenge** and **Play it again** stay pinned to the bottom.
 
 **Pause** (❚❚ next to the clock) stops the timer and hides the letters; the app also pauses
 itself when it goes to the background. Paused rounds are marked in results and the leaderboard.
@@ -72,7 +87,7 @@ the start time, live word counts, and finished words. Everyone's phone rescores 
 - **Live game** (Friends → Live group): a lobby with ready buttons. When everyone is ready, the
   host's phone sets a start time five seconds out and every phone counts down on the server's
   clock, so the round starts and ends together. No pausing. Others' live word counts are shown
-  unless you hide them (lobby or Friends), a per-person setting.
+  unless you hide them (lobby or Settings), a per-person setting.
 - **Live 1-on-1** (Friends → Live 1-on-1): a waiting room with no ready buttons; the countdown
   starts the moment the second person joins.
 - **Starting any online game** (Live 1-on-1, Live group, Play-when-you-can) asks who's playing:
